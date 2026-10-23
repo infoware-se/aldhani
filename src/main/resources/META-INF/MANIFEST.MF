@@ -1,0 +1,12 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Aldhani
+Bundle-SymbolicName: se.infoware.domino.aldhani;singleton:=true
+Bundle-Version: 0.1.0
+Bundle-Vendor: Infoware
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Import-Package: javax.servlet;version="[2.4,4)",javax.servlet.http;vers
+ ion="[2.4,4)"
+Require-Bundle: org.eclipse.core.runtime,org.eclipse.equinox.http.regis
+ try
+Bundle-ClassPath: .

@@ -1,0 +1,5 @@
+target/
+aldhani.json
+.env
+*.class
+.cursor/mcp.json

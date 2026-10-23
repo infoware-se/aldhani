@@ -1,0 +1,9 @@
+{
+  "_comment": "Kopiera till Dominos datakatalog som aldhani.json. bearerToken är det Cursor skickar. kyberUser är kontot Aldhani använder mot Kyber. insecureTls är för DRAPI:s privata certifikat på samma server.",
+  "kyberBaseUrl": "https://dantooine.oninfoware.local:8880",
+  "kyberUser": "CN=Aldhani Reader/O=onInfoware",
+  "kyberPassword": "",
+  "bearerToken": "",
+  "allowedNsf": ["aldhanitest.nsf"],
+  "insecureTls": true
+}
