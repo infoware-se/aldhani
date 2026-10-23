@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$version = "0.1.0"
+$version = "0.1.1"
 $servlet = "C:\Domino\osgi\rcp\eclipse\plugins\com.ibm.pvc.servlet_2.5.0.20260601-1307.jar"
 $javac = "C:\Domino\jvm\bin\javac.exe"
 $jar = "C:\Domino\jvm\bin\jar.exe"
@@ -22,16 +22,10 @@ $testCp = "$classes;$servlet"
 if ($LASTEXITCODE -ne 0) { throw "test compile failed" }
 
 Copy-Item (Join-Path $root "src\main\resources\plugin.xml") $classes
+Copy-Item (Join-Path $root "src\main\resources\feature.xml") $classes
 $bundle = Join-Path $root "target\infoware-aldhani-$version.jar"
 & $jar cfm $bundle (Join-Path $root "src\main\resources\META-INF\MANIFEST.MF") -C $classes .
 if ($LASTEXITCODE -ne 0) { throw "bundle jar failed" }
-
-$featureDir = Join-Path $root "target\feature"
-New-Item -ItemType Directory -Force -Path $featureDir | Out-Null
-Copy-Item (Join-Path $root "src\main\resources\feature.xml") $featureDir
-$feature = Join-Path $root "target\se.infoware.domino.aldhani.feature_$version.jar"
-& $jar cf $feature -C $featureDir feature.xml
-if ($LASTEXITCODE -ne 0) { throw "feature jar failed" }
 
 $runCp = "$testClasses;$classes"
 & "C:\Domino\jvm\bin\java.exe" -cp $runCp se.infoware.domino.aldhani.AldhaniSelfTest

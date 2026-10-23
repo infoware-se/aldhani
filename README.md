@@ -12,35 +12,21 @@ Requires JDK 21 and the Domino servlet API (`com.ibm.pvc.servlet`). `build.ps1` 
 .\build.ps1
 ```
 
-That produces
-
-- `target\infoware-aldhani-0.1.0.jar`
-- `target\se.infoware.domino.aldhani.feature_0.1.0.jar`
+That produces `target\infoware-aldhani-0.1.1.jar`. The jar is the OSGi plugin and also contains `feature.xml`.
 
 ## Install
 
-Copy the plugin jar and unpack the feature. The HTTP task's Equinox reads features as directories, and the `applications` site uses the `USER-EXCLUDE` policy, so the feature has to be listed in `platform.xml`.
+`install.ps1` copies the jar into the applications plugins directory, unpacks `feature.xml`, and adds the feature to the applications site in `platform.xml`. Equinox on that site uses the `USER-EXCLUDE` policy, so the feature has to be listed there, and it reads the feature as a directory.
 
-```text
-<Domino data>\domino\workspace\applications\eclipse\plugins\se.infoware.domino.aldhani_0.1.0.jar
-<Domino data>\domino\workspace\applications\eclipse\features\se.infoware.domino.aldhani.feature_0.1.0\feature.xml
-```
-
-Add the feature under the applications site in `domino\workspace\.config\org.eclipse.update\platform.xml`:
-
-```xml
-<feature id="se.infoware.domino.aldhani.feature" url="features/se.infoware.domino.aldhani.feature_0.1.0/" version="0.1.0">
-</feature>
-```
-
-Do that while HTTP is stopped. `tell http restart` does not reload the OSGi configuration. Stop and start only the HTTP task:
+Stop HTTP first. `tell http restart` does not reload this configuration, and HTTP rewrites `platform.xml` from memory when it shuts down.
 
 ```text
 tell http quit
+.\install.ps1 -DataDir <Domino data>
 load http
 ```
 
-Do not restart the Windows service.
+Do not restart the Windows service. The script refuses to edit the server while `nhttp` is running.
 
 Copy `aldhani.json.example` to `<Domino data>\aldhani.json` and fill in the password and token. The servlet reloads that file when it changes. A new jar still needs HTTP to be started again.
 

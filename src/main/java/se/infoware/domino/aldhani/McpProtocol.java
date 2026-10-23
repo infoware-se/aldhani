@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.Set;
 
 final class McpProtocol {
-    static final String VERSION = "0.1.0";
+    static final String VERSION = "0.1.1";
     private static final Set<String> PROTOCOL_VERSIONS = Set.of(
             "2024-11-05",
             "2025-03-26",
