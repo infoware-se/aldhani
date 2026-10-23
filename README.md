@@ -12,7 +12,17 @@ Requires JDK 21 and the Domino servlet API (`com.ibm.pvc.servlet`). `build.ps1` 
 .\build.ps1
 ```
 
-That produces `target\infoware-aldhani-0.1.1.jar`. The jar is the OSGi plugin and also contains `feature.xml`.
+That produces `target\infoware-aldhani-0.1.1.jar`. The jar is the OSGi plugin and also contains `feature.xml`. The build runs an in-process self-test and does not call the server.
+
+## Smoke
+
+`smoke.ps1` calls a running servlet. It checks that anonymous `POST /mcp` is rejected, then reads `aldhanitest.nsf`: `SmokeForm`, `SmokeView`, the `SmokeAgent*` agents, and `SmokeXPage.xsp`. It also exports the design and checks that `kybertest.nsf` stays outside the allowlist.
+
+```powershell
+.\smoke.ps1
+```
+
+The token is read from `<Domino data>\aldhani.json`. Pass `-Url` and `-Config` for another server.
 
 ## Install
 

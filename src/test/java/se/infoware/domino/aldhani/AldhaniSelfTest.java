@@ -1,10 +1,6 @@
 package se.infoware.domino.aldhani;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -15,9 +11,6 @@ public final class AldhaniSelfTest {
         listsOnlyTheSandbox();
         refusesDatabasesOutsideTheAllowlist();
         speaksMcp();
-        if (args.length > 0 && "live".equals(args[0])) {
-            live(Path.of(args.length > 1 ? args[1] : ".env"));
-        }
         System.out.println("aldhani self-test ok");
     }
 
@@ -103,36 +96,6 @@ public final class AldhaniSelfTest {
                 {"jsonrpc":"2.0","id":3,"method":"nope"}""");
         Map<String, Object> error = Json.object(Json.object(Json.parse(missing.body())).get("error"));
         expect(-32601, ((Number) error.get("code")).intValue());
-    }
-
-    private static void live(Path envFile) throws Exception {
-        Map<String, String> env = readEnv(envFile);
-        Map<String, Object> config = new LinkedHashMap<>();
-        config.put("kyberBaseUrl", env.get("DOMINO_REST_API_DATA_URL"));
-        config.put("kyberUser", env.get("REST_ADMIN_USER"));
-        config.put("kyberPassword", env.get("REST_ADMIN_PASSWORD"));
-        config.put("bearerToken", "test-token");
-        config.put("allowedNsf", List.of("aldhanitest.nsf"));
-        config.put("insecureTls", true);
-        DesignTools tools = new DesignTools(AldhaniConfig.parse(Json.write(config)), new KyberClient(AldhaniConfig.parse(Json.write(config))));
-        DesignTools.ToolResult result = tools.call("list_databases", Map.of());
-        if (result.error()) {
-            throw new AssertionError(result.text());
-        }
-        System.out.println(result.text());
-    }
-
-    private static Map<String, String> readEnv(Path file) throws Exception {
-        Map<String, String> values = new LinkedHashMap<>();
-        for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
-            String trimmed = line.trim();
-            if (trimmed.isEmpty() || trimmed.startsWith("#") || !trimmed.contains("=")) {
-                continue;
-            }
-            int split = trimmed.indexOf('=');
-            values.put(trimmed.substring(0, split).trim(), trimmed.substring(split + 1).trim());
-        }
-        return values;
     }
 
     private static AldhaniConfig sample() {
