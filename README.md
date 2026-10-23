@@ -1,58 +1,58 @@
 # Aldhani
 
-Aldhani är en OSGi-servlet på Dominos HTTP-task. Den tar emot MCP och läser design genom [Kyber](https://github.com/infoware-se) på DRAPI. Själva designändringarna stannar i Kyber. Den här versionen är bara läsning.
+Aldhani is an OSGi servlet on the Domino HTTP task. It accepts MCP and reads design through Kyber on DRAPI. Design changes stay in Kyber. This version is read-only.
 
-Sandbox-databasen är `aldhanitest.nsf`. Den ska ha katalogkategorin `KyberEnabled`.
+The sandbox database is `aldhanitest.nsf`. It needs the catalog category `KyberEnabled`.
 
-## Bygg
+## Build
 
-Kräver JDK 21 och Dominos servlet-API (`com.ibm.pvc.servlet`). `build.ps1` använder Dominos `java` för självtestet och faller tillbaka till `javac` på `PATH` om Dominos JVM saknar kompilator.
+Requires JDK 21 and the Domino servlet API (`com.ibm.pvc.servlet`). `build.ps1` runs the self-test with Domino's `java` and falls back to `javac` on `PATH` when the Domino JVM has no compiler.
 
 ```powershell
 .\build.ps1
 ```
 
-Det ger
+That produces
 
 - `target\infoware-aldhani-0.1.0.jar`
 - `target\se.infoware.domino.aldhani.feature_0.1.0.jar`
 
-## Installera
+## Install
 
-Kopiera plugin-jarren och packa upp featuren. Equinox på HTTP-tasken läser features som kataloger, och sajten `applications` har policyn `USER-EXCLUDE`, så featuren måste stå i `platform.xml`.
+Copy the plugin jar and unpack the feature. The HTTP task's Equinox reads features as directories, and the `applications` site uses the `USER-EXCLUDE` policy, so the feature has to be listed in `platform.xml`.
 
 ```text
 <Domino data>\domino\workspace\applications\eclipse\plugins\se.infoware.domino.aldhani_0.1.0.jar
 <Domino data>\domino\workspace\applications\eclipse\features\se.infoware.domino.aldhani.feature_0.1.0\feature.xml
 ```
 
-Lägg in featuren under applications-sajten i `domino\workspace\.config\org.eclipse.update\platform.xml`:
+Add the feature under the applications site in `domino\workspace\.config\org.eclipse.update\platform.xml`:
 
 ```xml
 <feature id="se.infoware.domino.aldhani.feature" url="features/se.infoware.domino.aldhani.feature_0.1.0/" version="0.1.0">
 </feature>
 ```
 
-Gör det medan HTTP är stoppad. `tell http restart` laddar inte om OSGi-konfigurationen. Stoppa och starta bara HTTP-tasken:
+Do that while HTTP is stopped. `tell http restart` does not reload the OSGi configuration. Stop and start only the HTTP task:
 
 ```text
 tell http quit
 load http
 ```
 
-Starta inte om Windows-tjänsten.
+Do not restart the Windows service.
 
-Kopiera `aldhani.json.example` till `<Domino data>\aldhani.json` och fyll i lösenord och token. Servletten läser om filen när den ändras. En ny jar kräver däremot att HTTP startas om.
+Copy `aldhani.json.example` to `<Domino data>\aldhani.json` and fill in the password and token. The servlet reloads that file when it changes. A new jar still needs HTTP to be started again.
 
-`ALDHANI_CONFIG` kan peka på en annan konfigurationsfil.
+`ALDHANI_CONFIG` can point at a different configuration file.
 
-## Anrop
+## Calling it
 
-Endpointen är `POST /mcp`. `GET` svarar 405.
+The endpoint is `POST /mcp`. `GET` returns 405.
 
-Domino HTTP med sessionsinloggning tar `Authorization: Basic` och `Authorization: Bearer` och svarar med inloggningssidan innan servletten ser anropet. Skicka token som `Authorization: Aldhani <token>`. Samma värde som `bearerToken` i `aldhani.json`. `X-Aldhani-Token` fungerar också.
+Domino HTTP with session authentication consumes `Authorization: Basic` and `Authorization: Bearer` and answers with the login page before the servlet sees the request. Send the token as `Authorization: Aldhani <token>`, the same value as `bearerToken` in `aldhani.json`. `X-Aldhani-Token` works as well.
 
-Cursor, i `.cursor/mcp.json` (filen är gitignorerad):
+Cursor, in `.cursor/mcp.json` (that file is gitignored):
 
 ```json
 {
@@ -67,17 +67,17 @@ Cursor, i `.cursor/mcp.json` (filen är gitignorerad):
 }
 ```
 
-## Verktyg
+## Tools
 
-| Verktyg | Gör |
+| Tool | What it does |
 | --- | --- |
-| `list_databases` | Kyber-databaser som finns på allowlistan. Övriga döljs. Saknade namn listas under `missing`. |
-| `list_design` | Formulär, vyer, agenter eller XPages. `type` är `form`, `view`, `agent` eller `xpage`. |
-| `get_design` | Ett designelement som Kyber-JSON, inklusive DXL. |
-| `export_design` | Hela designen som DXL. |
+| `list_databases` | Kyber databases that are on the allowlist. Others are omitted. Names that are missing are listed under `missing`. |
+| `list_design` | Forms, views, agents, or XPages. `type` is `form`, `view`, `agent`, or `xpage`. |
+| `get_design` | One design element as Kyber JSON, including its DXL. |
+| `export_design` | The whole design as DXL. |
 
-`nsfPath` behövs bara när allowlistan har mer än en databas. Sökvägar med `..`, inledande `/` eller `:` avvisas innan Kyber anropas.
+`nsfPath` is required only when the allowlist has more than one database. Paths containing `..`, a leading `/`, or `:` are rejected before Kyber is called.
 
-## Det som inte följer med i git
+## Left out of git
 
-`aldhani.json`, `.env` och `.cursor/mcp.json` innehåller lösenord och token. De ligger i `.gitignore`.
+`aldhani.json`, `.env`, and `.cursor/mcp.json` hold passwords and tokens. They are listed in `.gitignore`.
