@@ -18,6 +18,8 @@ final class AldhaniConfig {
     final List<String> allowedNsf;
     final boolean insecureTls;
     final boolean allowWrite;
+    final String publicBaseUrl;
+    final String oauthSubject;
 
     private AldhaniConfig(
             String kyberBaseUrl,
@@ -26,7 +28,9 @@ final class AldhaniConfig {
             String bearerToken,
             List<String> allowedNsf,
             boolean insecureTls,
-            boolean allowWrite) {
+            boolean allowWrite,
+            String publicBaseUrl,
+            String oauthSubject) {
         this.kyberBaseUrl = kyberBaseUrl;
         this.kyberUser = kyberUser;
         this.kyberPassword = kyberPassword;
@@ -34,6 +38,8 @@ final class AldhaniConfig {
         this.allowedNsf = List.copyOf(allowedNsf);
         this.insecureTls = insecureTls;
         this.allowWrite = allowWrite;
+        this.publicBaseUrl = publicBaseUrl;
+        this.oauthSubject = oauthSubject;
     }
 
     static Path configFile() {
@@ -77,7 +83,9 @@ final class AldhaniConfig {
                 required(root, "bearerToken"),
                 paths,
                 insecure,
-                allowWrite);
+                allowWrite,
+                optional(root, "publicBaseUrl"),
+                optional(root, "oauthSubject"));
     }
 
     static String normalizeNsf(String path) {
@@ -109,6 +117,14 @@ final class AldhaniConfig {
             return allowedNsf.get(0);
         }
         return null;
+    }
+
+    private static String optional(Map<String, Object> root, String key) {
+        String value = Json.string(root.get(key));
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 
     private static String required(Map<String, Object> root, String key) {

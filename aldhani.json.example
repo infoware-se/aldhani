@@ -1,10 +1,11 @@
 {
-  "_comment": "Copy to the Domino data directory as aldhani.json. bearerToken is what Cursor sends. kyberUser is the account Aldhani uses against Kyber. insecureTls is for DRAPI's private certificate on the same server.",
+  "_comment": "Copy to the Domino data directory as aldhani.json. bearerToken is what the MCP client sends as Authorization: Aldhani. kyberUser is the account Aldhani uses against Kyber. insecureTls is for DRAPI's private certificate on the same server. publicBaseUrl is optional and fixes the HTTPS origin advertised by OAuth. oauthSubject is optional and defaults to kyberUser.",
   "kyberBaseUrl": "https://dantooine.oninfoware.local:8880",
   "kyberUser": "CN=Aldhani Reader/O=onInfoware",
   "kyberPassword": "",
   "bearerToken": "",
   "allowedNsf": ["aldhanitest.nsf"],
   "insecureTls": true,
-  "allowWrite": false
+  "allowWrite": false,
+  "publicBaseUrl": "https://dantooine.oninfoware.local"
 }

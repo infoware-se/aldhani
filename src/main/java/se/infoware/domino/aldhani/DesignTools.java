@@ -8,6 +8,7 @@ import java.util.Set;
 
 final class DesignTools {
     static final int MAX_CHARS = 100_000;
+    static final int PAGE = 40_000;
 
     private static final Map<String, String> COLLECTIONS = new LinkedHashMap<>();
     private static final List<String> COLLECTION_NAMES;
@@ -80,6 +81,10 @@ final class DesignTools {
         return SINGLETONS;
     }
 
+    List<String> allowedNsf() {
+        return config.allowedNsf;
+    }
+
     private final AldhaniConfig config;
     private final KyberGet kyber;
 
@@ -109,6 +114,11 @@ final class DesignTools {
                     ? ex.getMessage()
                     : "Kyber returned HTTP " + ex.status + ": " + ex.getMessage();
             return new ToolResult(detail, true);
+        } catch (RuntimeException ex) {
+            if (Thread.currentThread().isInterrupted()) {
+                return new ToolResult("Cancelled", true);
+            }
+            throw ex;
         }
     }
 
@@ -320,16 +330,48 @@ final class DesignTools {
             if (present(arguments, "name")) {
                 throw new IllegalArgumentException(kind.path + " has no element name");
             }
-            return kyber.get("/api/kyber-v1/" + kind.path + "?" + KyberClient.query("nsfPath", nsf(arguments)));
+            return page(kyber.get("/api/kyber-v1/" + kind.path + "?" + KyberClient.query("nsfPath", nsf(arguments))), arguments);
         }
         String name = required(arguments, "name");
-        return kyber.get("/api/kyber-v1/" + kind.path + "/" + KyberClient.pathSegment(name)
-                + "?" + KyberClient.query("nsfPath", nsf(arguments)));
+        return page(kyber.get("/api/kyber-v1/" + kind.path + "/" + KyberClient.pathSegment(name)
+                + "?" + KyberClient.query("nsfPath", nsf(arguments))), arguments);
     }
 
     private String exportDesign(Map<String, Object> arguments) {
         String nsf = nsf(arguments);
-        return kyber.get("/api/kyber-v1/export?" + KyberClient.query("nsfPath", nsf));
+        return page(kyber.get("/api/kyber-v1/export?" + KyberClient.query("nsfPath", nsf)), arguments);
+    }
+
+    /** A requested part is one slice of the raw Kyber body. Omit part and a large body is summarized instead. */
+    static String page(String text, Map<String, Object> arguments) {
+        Integer part = part(arguments);
+        if (part == null) {
+            return text == null ? "" : text;
+        }
+        String body = text == null ? "" : text;
+        int pages = Math.max(1, (body.length() + PAGE - 1) / PAGE);
+        if (part >= pages) {
+            throw new IllegalArgumentException("part is out of range");
+        }
+        int start = part * PAGE;
+        int end = Math.min(body.length(), start + PAGE);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("part", part);
+        result.put("parts", pages);
+        result.put("totalChars", body.length());
+        result.put("text", body.substring(start, end));
+        return Json.write(result);
+    }
+
+    private static Integer part(Map<String, Object> arguments) {
+        Object value = arguments.get("part");
+        if (value == null) {
+            return null;
+        }
+        if (!(value instanceof Number number) || number.longValue() < 0 || number.doubleValue() != number.longValue()) {
+            throw new IllegalArgumentException("part must be a non-negative integer");
+        }
+        return (int) number.longValue();
     }
 
     private static void alias(String plural, String singular) {

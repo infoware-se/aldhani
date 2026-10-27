@@ -1,10 +1,13 @@
 package se.infoware.domino.aldhani;
 
 import java.io.IOException;
+import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.servlet.ServletException;
@@ -46,6 +49,16 @@ public class McpServlet extends HttpServlet {
             response.sendError(HttpServletResponse.SC_NOT_ACCEPTABLE);
             return;
         }
+        if (!HttpGuard.originAllowed(request.getHeader("Origin"), request.getServerName())) {
+            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+            writeJson(response, "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,\"message\":\"Origin is not allowed\"}}");
+            return;
+        }
+        if (!HttpGuard.protocolHeaderOk(request.getHeader("MCP-Protocol-Version"))) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            writeJson(response, "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,\"message\":\"Unsupported protocol version\"}}");
+            return;
+        }
         McpProtocol current = refresh(false);
         if (current == null) {
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
@@ -54,16 +67,71 @@ public class McpServlet extends HttpServlet {
         }
         if (!authorized(request)) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            String origin = PublicOrigin.of(request, configuredOrigin());
             response.setHeader("WWW-Authenticate", "Aldhani realm=\"aldhani\"");
+            response.addHeader("WWW-Authenticate",
+                    "Bearer realm=\"aldhani\", resource_metadata=\"" + origin + "/.well-known/oauth-protected-resource/mcp\"");
             writeJson(response, "{\"error\":\"Unauthorized\"}");
             return;
         }
         request.setCharacterEncoding(StandardCharsets.UTF_8.name());
         String body = readBody(request);
-        McpProtocol.HttpReply reply = current.handle(body);
+        boolean stream = acceptsEventStream(request);
+        AtomicBoolean opened = new AtomicBoolean();
+        Writer[] writer = new Writer[1];
+        if (stream) {
+            McpProtocol.ON_REQUEST.set(() -> openStream(response, opened, writer));
+            McpProtocol.LIVE.set(message -> {
+                openStream(response, opened, writer);
+                try {
+                    writer[0].write("event: message\ndata: " + Json.write(message) + "\n\n");
+                    writer[0].flush();
+                } catch (IOException ex) {
+                    throw new java.io.UncheckedIOException(ex);
+                }
+            });
+        }
+        McpProtocol.HttpReply reply;
+        try {
+            reply = current.handle(body, request.getHeader("MCP-Session-Id"));
+        } finally {
+            McpProtocol.ON_REQUEST.remove();
+            McpProtocol.LIVE.remove();
+        }
+        if (reply.openSession()) {
+            String session = request.getHeader("MCP-Session-Id");
+            if (session == null || session.isBlank()) {
+                session = UUID.randomUUID().toString();
+            }
+            response.setHeader("MCP-Session-Id", session);
+        }
+        if (opened.get()) {
+            if (!reply.suppressed() && reply.body() != null) {
+                writer[0].write("event: message\ndata: " + reply.body() + "\n\n");
+                writer[0].flush();
+            }
+            return;
+        }
         response.setStatus(reply.status());
         if (reply.body() != null) {
             writeJson(response, reply.body());
+        }
+    }
+
+    private static void openStream(HttpServletResponse response, AtomicBoolean opened, Writer[] writer) {
+        if (!opened.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            response.setStatus(HttpServletResponse.SC_OK);
+            response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+            response.setContentType("text/event-stream");
+            response.setHeader("Cache-Control", "no-cache");
+            writer[0] = response.getWriter();
+            writer[0].write("id: 1\ndata:\n\n");
+            writer[0].flush();
+        } catch (IOException ex) {
+            throw new java.io.UncheckedIOException(ex);
         }
     }
 
@@ -94,20 +162,32 @@ public class McpServlet extends HttpServlet {
 
     private boolean authorized(HttpServletRequest request) {
         String presented = tokenFrom(request);
-        String expected = bearer();
-        if (presented == null || expected == null) {
+        if (presented == null) {
             return false;
         }
-        return MessageDigest.isEqual(
+        String expected = bearer();
+        if (expected != null && MessageDigest.isEqual(
                 presented.getBytes(StandardCharsets.UTF_8),
-                expected.getBytes(StandardCharsets.UTF_8));
+                expected.getBytes(StandardCharsets.UTF_8))) {
+            return true;
+        }
+        return presented.indexOf('.') > 0 && OauthStore.open(configFile).accessValid(presented);
+    }
+
+    private String configuredOrigin() {
+        try {
+            return AldhaniConfig.load(configFile).publicBaseUrl;
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     /**
-     * Domino's HTTP task handles {@code Authorization: Basic} and {@code Authorization: Bearer}
-     * itself and answers with the session login page, so those schemes never reach this servlet.
-     * {@code Authorization: Aldhani} is the scheme that gets through. Bearer still works on a
-     * server that does not intercept it, and {@code X-Aldhani-Token} remains as a fallback.
+     * Session authentication on Domino consumes {@code Authorization: Basic}. An opaque
+     * {@code Authorization: Bearer} is intercepted too, unless the bearer is a JWT this
+     * server signed and the internet site trusts Aldhani as its OIDC provider.
+     * {@code Authorization: Aldhani} and {@code X-Aldhani-Token} remain direct checks
+     * against {@code bearerToken}.
      */
     private static String tokenFrom(HttpServletRequest request) {
         String header = request.getHeader("Authorization");
@@ -158,6 +238,11 @@ public class McpServlet extends HttpServlet {
         return lower.contains("application/json")
                 || lower.contains("text/event-stream")
                 || lower.contains("*/*");
+    }
+
+    private static boolean acceptsEventStream(HttpServletRequest request) {
+        String accept = request.getHeader("Accept");
+        return accept != null && accept.toLowerCase().contains("text/event-stream");
     }
 
     private static String readBody(HttpServletRequest request) throws IOException {

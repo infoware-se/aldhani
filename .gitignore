@@ -1,5 +1,6 @@
 target/
 aldhani.json
+aldhani-oauth.pem
 .env
 *.class
 .cursor/mcp.json

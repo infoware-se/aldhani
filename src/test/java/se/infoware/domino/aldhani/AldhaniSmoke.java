@@ -42,6 +42,7 @@ public final class AldhaniSmoke {
         AldhaniConfig config = AldhaniConfig.load(configFile);
         HttpClient http = client();
         expectStatus("GET", 405, send(http, url, "GET", null, null));
+        assertDiscovery(http, url);
         Reply anonymous = send(http, url, "POST", initializeBody(), null);
         expectStatus("anonymous initialize", 401, anonymous);
         String challenge = anonymous.authenticate == null ? "" : anonymous.authenticate;
@@ -53,6 +54,36 @@ public final class AldhaniSmoke {
         Map<String, Object> server = Json.object(Json.object(result(init)).get("serverInfo"));
         expect("aldhani", server.get("name"));
         expect(McpProtocol.VERSION, server.get("version"));
+        String instructions = Json.string(Json.object(result(init)).get("instructions"));
+        if (instructions == null || !instructions.contains("Kyber")) {
+            throw new AssertionError("initialize instructions are missing");
+        }
+        Reply resources = call(http, url, config.bearerToken, "resources/list", Map.of());
+        boolean sawDatabase = false;
+        for (Object item : (List<?>) Json.object(result(resources)).get("resources")) {
+            if (("aldhani://" + NSF).equals(Json.object(item).get("uri"))) {
+                sawDatabase = true;
+            }
+        }
+        if (!sawDatabase) {
+            throw new AssertionError("allowlisted database is not a resource");
+        }
+        Reply completion = call(http, url, config.bearerToken, "completion/complete", Map.of(
+                "argument", Map.of("name", "type", "value", "fo")));
+        List<?> values = (List<?>) Json.object(Json.object(result(completion)).get("completion")).get("values");
+        if (!values.contains("forms") || !values.contains("folders")) {
+            throw new AssertionError("type completion missed forms or folders");
+        }
+        Map<String, Object> capabilities = Json.object(Json.object(result(init)).get("capabilities"));
+        if (!capabilities.containsKey("prompts") || !capabilities.containsKey("logging")) {
+            throw new AssertionError("prompts or logging capability is missing");
+        }
+        Reply prompts = call(http, url, config.bearerToken, "prompts/list", Map.of());
+        List<?> promptList = (List<?>) Json.object(result(prompts)).get("prompts");
+        if (promptList.isEmpty() || !"review_design".equals(Json.object(promptList.get(0)).get("name"))) {
+            throw new AssertionError("review_design prompt is missing");
+        }
+        call(http, url, config.bearerToken, "logging/setLevel", Map.of("level", "info"));
 
         Reply wrongToken = send(http, url, "POST", initializeBody(), "wrong-token");
         expectStatus("wrong token", 401, wrongToken);
@@ -77,6 +108,12 @@ public final class AldhaniSmoke {
             expected.addAll(List.of("create_design", "update_design", "delete_design", "validate_design"));
         }
         expect(expected, toolNames);
+        if (!Json.object(toolDefs.get(0)).containsKey("outputSchema")) {
+            throw new AssertionError("list_databases has no outputSchema");
+        }
+        if (Json.object(toolDefs.get(3)).containsKey("outputSchema")) {
+            throw new AssertionError("export_design should stay free of an output schema");
+        }
         assertToolHints(toolDefs, writes);
 
         String databases = tool(http, url, config.bearerToken, "list_databases", Map.of());
@@ -145,6 +182,23 @@ public final class AldhaniSmoke {
                 + " collections=" + DesignTools.collections().size()
                 + " notes=" + DesignTools.singletons().size()
                 + " form=SmokeForm view=SmokeView agents=5 xpage=SmokeXPage.xsp");
+    }
+
+    private static void assertDiscovery(HttpClient http, String mcpUrl) {
+        URI mcp = URI.create(mcpUrl);
+        int port = mcp.getPort();
+        boolean standard = port < 0
+                || ("https".equalsIgnoreCase(mcp.getScheme()) && port == 443)
+                || ("http".equalsIgnoreCase(mcp.getScheme()) && port == 80);
+        String origin = mcp.getScheme() + "://" + mcp.getHost() + (standard ? "" : ":" + port);
+        Reply metadata = send(http, origin + "/oauth/.well-known/openid-configuration", "GET", null, null);
+        expectStatus("oauth discovery", 200, metadata);
+        Map<String, Object> document = Json.object(Json.parse(metadata.body));
+        expect(origin + "/oauth", document.get("issuer"));
+        expect(List.of("S256"), document.get("code_challenge_methods_supported"));
+        Reply resource = send(http, origin + "/.well-known/oauth-protected-resource/mcp", "GET", null, null);
+        expectStatus("oauth resource", 200, resource);
+        expect(origin + "/mcp", Json.object(Json.parse(resource.body)).get("resource"));
     }
 
     private static void assertToolHints(List<?> toolDefs, boolean writes) {

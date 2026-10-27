@@ -2,9 +2,15 @@
 <?eclipse version="3.4"?>
 <plugin>
    <extension point="org.eclipse.equinox.http.registry.servlets">
-      <servlet
-            alias="/mcp"
-            class="se.infoware.domino.aldhani.McpServlet">
-      </servlet>
+      <servlet alias="/mcp" class="se.infoware.domino.aldhani.McpServlet"/>
+      <servlet alias="/.well-known/oauth-protected-resource" class="se.infoware.domino.aldhani.OauthServlet"/>
+      <servlet alias="/.well-known/oauth-protected-resource/mcp" class="se.infoware.domino.aldhani.OauthServlet"/>
+      <servlet alias="/.well-known/oauth-authorization-server/oauth" class="se.infoware.domino.aldhani.OauthServlet"/>
+      <servlet alias="/.well-known/openid-configuration/oauth" class="se.infoware.domino.aldhani.OauthServlet"/>
+      <servlet alias="/oauth/.well-known/openid-configuration" class="se.infoware.domino.aldhani.OauthServlet"/>
+      <servlet alias="/oauth/jwks" class="se.infoware.domino.aldhani.OauthServlet"/>
+      <servlet alias="/oauth/authorize" class="se.infoware.domino.aldhani.OauthServlet"/>
+      <servlet alias="/oauth/token" class="se.infoware.domino.aldhani.OauthServlet"/>
+      <servlet alias="/oauth/register" class="se.infoware.domino.aldhani.OauthServlet"/>
    </extension>
 </plugin>

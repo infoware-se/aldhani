@@ -53,6 +53,9 @@ final class KyberClient implements KyberExchange {
 
     private String send(
             String method, String pathAndQuery, String body, String contentType, boolean retryOnUnauthorized) {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new KyberException(0, "Kyber call was interrupted");
+        }
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(config.kyberBaseUrl + pathAndQuery))
                 .timeout(Duration.ofSeconds(120))
                 .header("Accept", "application/json");
