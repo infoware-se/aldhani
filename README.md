@@ -6,6 +6,10 @@ Aldhani is an MCP server for HCL Domino design. It runs as an OSGi servlet on th
 
 Version 0.1.11. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
 
+## Language
+
+Comments, commit messages, and documentation are written in English.
+
 ## Purpose
 
 An agent needs to work with Domino design through the products Infoware already runs. The agent speaks MCP. Domino is where that endpoint lives, because Domino is the product being worked on and the servlet installs on another Domino server the same way Kyber's jar does. Kyber on DRAPI is the design API, and it stays the only component that creates or updates a design element.
