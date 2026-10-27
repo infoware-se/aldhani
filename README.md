@@ -1,5 +1,7 @@
 # Aldhani
 
+An AI agent creates, reads, updates, and deletes Domino design through Kyber.
+
 Aldhani is a read-only MCP server for HCL Domino design. It runs as an OSGi servlet on the Domino HTTP task and answers MCP at `POST /mcp`. Every design read is a Kyber call on DRAPI. Kyber remains the API that changes design.
 
 Version 0.1.2. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
