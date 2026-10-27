@@ -1,4 +1,4 @@
-# Aldhani
+# Aldhani - Infoware MCP server for HCL Domino design
 
 An MCP server for an AI agent that creates, reads, updates, and deletes Domino design through Kyber.
 
