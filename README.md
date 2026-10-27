@@ -2,7 +2,7 @@
 
 Aldhani is a read-only MCP server for HCL Domino design. It runs as an OSGi servlet on the Domino HTTP task and answers MCP at `POST /mcp`. Every design read is a Kyber call on DRAPI. Kyber remains the API that changes design.
 
-Version 0.1.2. The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
+Version 0.1.2. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
 
 ## Purpose
 
@@ -211,3 +211,10 @@ The script reads `bearerToken` from the config file and does not print it. It is
 | `build.ps1` | Compile, self-test, and jar |
 | `install.ps1` | Place the jar, feature, and `platform.xml` entry |
 | `aldhani.json.example` | Configuration template |
+| `LICENSE` | Apache License, Version 2.0 |
+
+## License
+
+Aldhani is open-source software licensed under the Apache License, Version 2.0. Copyright 2026 Infoware Solutions Svenska AB.
+
+[Apache-2.0](LICENSE).
