@@ -19,7 +19,12 @@ interface KyberGet {
     String get(String pathAndQuery);
 }
 
-final class KyberClient implements KyberGet {
+/** Kyber calls that send a body. Reads stay on {@link KyberGet}. */
+interface KyberExchange extends KyberGet {
+    String exchange(String method, String pathAndQuery, String body, String contentType);
+}
+
+final class KyberClient implements KyberExchange {
     private final AldhaniConfig config;
     private final HttpClient http;
     private volatile String bearer;
@@ -39,18 +44,26 @@ final class KyberClient implements KyberGet {
     }
 
     public String get(String pathAndQuery) {
-        return send("GET", pathAndQuery, null, true);
+        return send("GET", pathAndQuery, null, null, true);
     }
 
-    private String send(String method, String pathAndQuery, String body, boolean retryOnUnauthorized) {
+    public String exchange(String method, String pathAndQuery, String body, String contentType) {
+        return send(method, pathAndQuery, body, contentType, true);
+    }
+
+    private String send(
+            String method, String pathAndQuery, String body, String contentType, boolean retryOnUnauthorized) {
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(config.kyberBaseUrl + pathAndQuery))
                 .timeout(Duration.ofSeconds(120))
                 .header("Accept", "application/json");
         if ("GET".equals(method)) {
             request.GET();
+        } else if ("DELETE".equals(method)) {
+            request.DELETE();
         } else {
-            request.header("Content-Type", "application/json; charset=utf-8");
-            request.POST(HttpRequest.BodyPublishers.ofString(body == null ? "" : body, StandardCharsets.UTF_8));
+            String type = contentType == null ? "application/json; charset=utf-8" : contentType;
+            request.header("Content-Type", type);
+            request.method(method, HttpRequest.BodyPublishers.ofString(body == null ? "" : body, StandardCharsets.UTF_8));
         }
         if (!pathAndQuery.startsWith("/api/v1/auth")) {
             request.header("Authorization", "Bearer " + token());
@@ -60,7 +73,7 @@ final class KyberClient implements KyberGet {
             synchronized (loginLock) {
                 bearer = null;
             }
-            return send(method, pathAndQuery, body, false);
+            return send(method, pathAndQuery, body, contentType, false);
         }
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new KyberException(response.statusCode(), clip(response.body()));
@@ -85,7 +98,7 @@ final class KyberClient implements KyberGet {
         Map<String, Object> body = Map.of(
                 "username", config.kyberUser,
                 "password", config.kyberPassword);
-        String response = send("POST", "/api/v1/auth", Json.write(body), false);
+        String response = send("POST", "/api/v1/auth", Json.write(body), "application/json; charset=utf-8", false);
         Map<String, Object> json = Json.object(Json.parse(response));
         for (String key : new String[] {"bearer", "token", "access_token"}) {
             String value = Json.string(json.get(key));

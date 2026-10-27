@@ -24,6 +24,19 @@ final class DesignTools {
             "template", "1248",
             "replica_candidate", "1245",
             "template_candidate", "1246");
+    private static final Set<String> CREATABLE_NOTES = Set.of(
+            "about", "using", "databasescript", "xspproperties");
+    private static final Set<String> UPDATABLE_NOTES = Set.of(
+            "about", "using", "databasescript", "xspproperties", "applicationproperties", "dbicon");
+    private static final Set<String> DELETABLE_NOTES = CREATABLE_NOTES;
+    private static final Set<String> KINDED = Set.of("agents", "scriptlibraries", "javasources");
+    private static final Set<String> READ_NAMES = Set.of(
+            "list_databases", "list_design", "get_design", "export_design");
+    private static final Set<String> WRITE_NAMES = Set.of(
+            "list_databases", "list_design", "get_design", "export_design",
+            "create_design", "update_design", "delete_design", "validate_design");
+    private static final String XML = "text/xml; charset=utf-8";
+    private static final String JSON = "application/json; charset=utf-8";
 
     static {
         alias("agents", "agent");
@@ -82,6 +95,10 @@ final class DesignTools {
                 case "list_design" -> listDesign(arguments);
                 case "get_design" -> getDesign(arguments);
                 case "export_design" -> exportDesign(arguments);
+                case "create_design" -> createDesign(arguments);
+                case "update_design" -> updateDesign(arguments);
+                case "delete_design" -> deleteDesign(arguments);
+                case "validate_design" -> validateDesign(arguments);
                 default -> throw new IllegalArgumentException("Unknown tool " + name);
             };
             return new ToolResult(clip(text), false);
@@ -145,10 +162,156 @@ final class DesignTools {
         if (kind.singleton) {
             throw new IllegalArgumentException(kind.path + " is one design note; use get_design");
         }
-        if (kind.defaults) {
-            return kyber.get("/api/kyber-v1/defaults");
+        Integer limit = limit(arguments);
+        String body = kyber.get("/api/kyber-v1/" + kind.path + "?" + KyberClient.query("nsfPath", nsf(arguments)));
+        if (limit == null) {
+            return body;
         }
-        return kyber.get("/api/kyber-v1/" + kind.path + "?" + KyberClient.query("nsfPath", nsf(arguments)));
+        return applyLimit(body, limit);
+    }
+
+    private String createDesign(Map<String, Object> arguments) {
+        KyberExchange writer = writer();
+        DesignKind kind = resolve(required(arguments, "type"));
+        String nsf = nsf(arguments);
+        String dxl = dxl(arguments, false);
+        if (kind.singleton) {
+            if (!CREATABLE_NOTES.contains(kind.path)) {
+                throw new IllegalArgumentException(kind.path + " cannot be created");
+            }
+            if (present(arguments, "name")) {
+                throw new IllegalArgumentException(kind.path + " has no element name");
+            }
+            rejectKind(arguments);
+            return writer.exchange(
+                    "POST",
+                    "/api/kyber-v1/" + kind.path + "?" + KyberClient.query("nsfPath", nsf),
+                    dxl == null ? "" : dxl,
+                    XML);
+        }
+        String name = required(arguments, "name");
+        String query = KyberClient.query("nsfPath", nsf) + "&" + KyberClient.query("name", name);
+        if (KINDED.contains(kind.path)) {
+            if (present(arguments, "kind")) {
+                query += "&" + KyberClient.query("kind", Json.string(arguments.get("kind")));
+            }
+        } else if (present(arguments, "kind")) {
+            throw new IllegalArgumentException(kind.path + " has no kind");
+        }
+        return writer.exchange(
+                "POST",
+                "/api/kyber-v1/" + kind.path + "?" + query,
+                dxl == null ? "" : dxl,
+                XML);
+    }
+
+    private String updateDesign(Map<String, Object> arguments) {
+        KyberExchange writer = writer();
+        DesignKind kind = resolve(required(arguments, "type"));
+        String nsf = nsf(arguments);
+        String dxl = dxl(arguments, true);
+        rejectKind(arguments);
+        if (kind.singleton) {
+            if (!UPDATABLE_NOTES.contains(kind.path)) {
+                throw new IllegalArgumentException(kind.path + " cannot be replaced through Aldhani");
+            }
+            if (present(arguments, "name")) {
+                throw new IllegalArgumentException(kind.path + " has no element name");
+            }
+            return writer.exchange(
+                    "PUT",
+                    "/api/kyber-v1/" + kind.path + "?" + KyberClient.query("nsfPath", nsf),
+                    dxl,
+                    XML);
+        }
+        String name = required(arguments, "name");
+        return writer.exchange(
+                "PUT",
+                "/api/kyber-v1/" + kind.path + "/" + KyberClient.pathSegment(name)
+                        + "?" + KyberClient.query("nsfPath", nsf),
+                dxl,
+                XML);
+    }
+
+    private String deleteDesign(Map<String, Object> arguments) {
+        KyberExchange writer = writer();
+        DesignKind kind = resolve(required(arguments, "type"));
+        String nsf = nsf(arguments);
+        rejectKind(arguments);
+        if (present(arguments, "dxl")) {
+            throw new IllegalArgumentException("delete_design does not take dxl");
+        }
+        if (kind.singleton) {
+            if (!DELETABLE_NOTES.contains(kind.path)) {
+                throw new IllegalArgumentException(kind.path + " cannot be deleted");
+            }
+            if (present(arguments, "name")) {
+                throw new IllegalArgumentException(kind.path + " has no element name");
+            }
+            return writer.exchange(
+                    "DELETE",
+                    "/api/kyber-v1/" + kind.path + "?" + KyberClient.query("nsfPath", nsf),
+                    null,
+                    null);
+        }
+        String name = required(arguments, "name");
+        return writer.exchange(
+                "DELETE",
+                "/api/kyber-v1/" + kind.path + "/" + KyberClient.pathSegment(name)
+                        + "?" + KyberClient.query("nsfPath", nsf),
+                null,
+                null);
+    }
+
+    private String validateDesign(Map<String, Object> arguments) {
+        KyberExchange writer = writer();
+        Object raw = arguments.get("elements");
+        if (!(raw instanceof List<?> elements) || elements.isEmpty()) {
+            throw new IllegalArgumentException("elements is required");
+        }
+        List<Object> normalized = new ArrayList<>();
+        for (Object item : elements) {
+            if (!(item instanceof Map<?, ?>)) {
+                throw new IllegalArgumentException("each element must be an object");
+            }
+            Map<String, Object> source = Json.object(item);
+            String type = Json.string(source.get("type"));
+            if (type == null || type.isBlank()) {
+                throw new IllegalArgumentException("each element needs a type");
+            }
+            boolean deleting = Boolean.TRUE.equals(source.get("delete"));
+            String dxl = Json.string(source.get("dxl"));
+            if (!deleting && (dxl == null || dxl.isBlank())) {
+                throw new IllegalArgumentException("dxl is required unless delete is true");
+            }
+            Map<String, Object> copy = new LinkedHashMap<>();
+            copy.put("type", kyberType(type));
+            if (source.containsKey("name")) {
+                copy.put("name", source.get("name"));
+            }
+            if (dxl != null) {
+                copy.put("dxl", dxl);
+            }
+            if (source.containsKey("delete")) {
+                copy.put("delete", source.get("delete"));
+            }
+            normalized.add(copy);
+        }
+        return writer.exchange(
+                "POST",
+                "/api/kyber-v1/validate?" + KyberClient.query("nsfPath", nsf(arguments)),
+                Json.write(Map.of("elements", normalized)),
+                JSON);
+    }
+
+    private KyberExchange writer() {
+        if (!config.allowWrite) {
+            throw new IllegalArgumentException("Aldhani writes are off");
+        }
+        if (kyber instanceof KyberExchange exchange) {
+            return exchange;
+        }
+        throw new IllegalArgumentException("Kyber client cannot write");
     }
 
     private String getDesign(Map<String, Object> arguments) {
@@ -160,13 +323,6 @@ final class DesignTools {
             return kyber.get("/api/kyber-v1/" + kind.path + "?" + KyberClient.query("nsfPath", nsf(arguments)));
         }
         String name = required(arguments, "name");
-        if (kind.defaults) {
-            String path = "/api/kyber-v1/defaults/" + KyberClient.pathSegment(name);
-            if (present(arguments, "kind")) {
-                path += "?" + KyberClient.query("kind", Json.string(arguments.get("kind")));
-            }
-            return kyber.get(path);
-        }
         return kyber.get("/api/kyber-v1/" + kind.path + "/" + KyberClient.pathSegment(name)
                 + "?" + KyberClient.query("nsfPath", nsf(arguments)));
     }
@@ -185,17 +341,14 @@ final class DesignTools {
 
     private static DesignKind resolve(String type) {
         String key = AldhaniConfig.lower(type);
-        if ("defaults".equals(key)) {
-            return new DesignKind("defaults", false, true);
-        }
         if (SINGLETONS.contains(key)) {
-            return new DesignKind(key, true, false);
+            return new DesignKind(key, true);
         }
         String collection = COLLECTIONS.get(key);
         if (collection == null) {
             throw new IllegalArgumentException("Unknown Kyber design type " + type);
         }
-        return new DesignKind(collection, false, false);
+        return new DesignKind(collection, false);
     }
 
     private static boolean present(Map<String, Object> arguments, String key) {
@@ -231,16 +384,161 @@ final class DesignTools {
         if (text.length() <= MAX_CHARS) {
             return text;
         }
-        return text.substring(0, MAX_CHARS) + "\n… truncated";
+        Object parsed;
+        try {
+            parsed = Json.parse(text);
+        } catch (IllegalArgumentException ex) {
+            return summary(text.length(), null);
+        }
+        if (!(parsed instanceof Map<?, ?>)) {
+            return summary(text.length(), null);
+        }
+        Map<String, Object> source = Json.object(parsed);
+        Map<String, Object> copy = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            copy.put(entry.getKey(), stripDxl(entry.getValue()));
+        }
+        copy.put("truncated", true);
+        copy.put("chars", text.length());
+        String written = Json.write(copy);
+        if (written.length() <= MAX_CHARS) {
+            return written;
+        }
+        return summary(text.length(), source);
     }
 
-    static Set<String> names() {
-        return Set.of("list_databases", "list_design", "get_design", "export_design");
+    boolean writesEnabled() {
+        return config.allowWrite;
+    }
+
+    Set<String> names() {
+        return config.allowWrite ? WRITE_NAMES : READ_NAMES;
+    }
+
+    private static String applyLimit(String body, int limit) {
+        Object parsed;
+        try {
+            parsed = Json.parse(body);
+        } catch (IllegalArgumentException ex) {
+            return body;
+        }
+        if (!(parsed instanceof Map<?, ?>)) {
+            return body;
+        }
+        Map<String, Object> source = Json.object(parsed);
+        Object raw = source.get("elements");
+        if (!(raw instanceof List<?> elements) || elements.size() <= limit) {
+            return body;
+        }
+        Map<String, Object> copy = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            Object value = entry.getValue();
+            if (value instanceof List<?> list && list.size() == elements.size()) {
+                copy.put(entry.getKey(), new ArrayList<>(list.subList(0, limit)));
+            } else {
+                copy.put(entry.getKey(), value);
+            }
+        }
+        copy.put("truncated", true);
+        copy.put("returned", limit);
+        copy.put("total", elements.size());
+        return Json.write(copy);
+    }
+
+    private static Integer limit(Map<String, Object> arguments) {
+        Object raw = arguments.get("limit");
+        if (raw == null) {
+            return null;
+        }
+        if (raw instanceof Number number) {
+            double exact = number.doubleValue();
+            int value = number.intValue();
+            if (exact == value && value >= 1) {
+                return value;
+            }
+        }
+        throw new IllegalArgumentException("limit must be a whole number of at least 1");
+    }
+
+    private static String dxl(Map<String, Object> arguments, boolean requiredDxl) {
+        Object raw = arguments.get("dxl");
+        if (raw == null) {
+            if (requiredDxl) {
+                throw new IllegalArgumentException("dxl is required");
+            }
+            return null;
+        }
+        String text = Json.string(raw);
+        if (text == null) {
+            throw new IllegalArgumentException("dxl must be text");
+        }
+        if (requiredDxl && text.isBlank()) {
+            throw new IllegalArgumentException("dxl is required");
+        }
+        return text;
+    }
+
+    private static void rejectKind(Map<String, Object> arguments) {
+        if (present(arguments, "kind")) {
+            throw new IllegalArgumentException(
+                    "kind is only used when creating an agent, script library, or Java source");
+        }
+    }
+
+    private static String kyberType(String type) {
+        DesignKind kind = resolve(type);
+        if (kind.singleton
+                || "sharedactions".equals(kind.path)
+                || "wiringproperties".equals(kind.path)) {
+            return kind.path;
+        }
+        for (Map.Entry<String, String> entry : COLLECTIONS.entrySet()) {
+            if (entry.getValue().equals(kind.path) && !entry.getKey().equals(kind.path)) {
+                return entry.getKey();
+            }
+        }
+        return kind.path;
+    }
+
+    private static Object stripDxl(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> copy = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if ("dxl".equals(entry.getKey())) {
+                    continue;
+                }
+                copy.put(String.valueOf(entry.getKey()), stripDxl(entry.getValue()));
+            }
+            return copy;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> copy = new ArrayList<>();
+            for (Object item : list) {
+                copy.add(stripDxl(item));
+            }
+            return copy;
+        }
+        return value;
+    }
+
+    private static String summary(int chars, Map<String, Object> source) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("truncated", true);
+        out.put("chars", chars);
+        if (source != null) {
+            for (String key : List.of("type", "name", "unid", "noteId", "nsfPath")) {
+                Object value = source.get(key);
+                if (value != null) {
+                    out.put(key, value);
+                }
+            }
+        }
+        return Json.write(out);
     }
 
     record ToolResult(String text, boolean error) {
     }
 
-    private record DesignKind(String path, boolean singleton, boolean defaults) {
+    private record DesignKind(String path, boolean singleton) {
     }
 }

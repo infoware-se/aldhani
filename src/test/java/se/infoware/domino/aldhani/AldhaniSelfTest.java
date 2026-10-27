@@ -11,6 +11,9 @@ public final class AldhaniSelfTest {
         listsOnlyTheSandbox();
         refusesDatabasesOutsideTheAllowlist();
         readsTheKyberCatalog();
+        keepsAShortListAndAWholeElement();
+        writesStayOffUntilAsked();
+        writesThroughKyberWhenAllowed();
         speaksMcp();
         System.out.println("aldhani self-test ok");
     }
@@ -84,16 +87,118 @@ public final class AldhaniSelfTest {
         expect(false, tools.call("get_design", Map.of("type", "acl")).error());
         expect("/api/kyber-v1/acl?nsfPath=aldhanitest.nsf", calls.get(calls.size() - 1));
         expect(true, tools.call("get_design", Map.of("type", "acl", "name", "Main")).error());
-        expect(false, tools.call("list_design", Map.of("type", "defaults")).error());
-        expect("/api/kyber-v1/defaults", calls.get(calls.size() - 1));
-        expect(false, tools.call("get_design", Map.of("type", "defaults", "name", "form", "kind", "lotusscript")).error());
-        expect("/api/kyber-v1/defaults/form?kind=lotusscript", calls.get(calls.size() - 1));
         int before = calls.size();
+        expect(true, tools.call("list_design", Map.of("type", "defaults")).error());
+        expect(true, tools.call("get_design", Map.of("type", "defaults", "name", "form")).error());
         expect(true, tools.call("get_design", Map.of("type", "form")).error());
         expect(true, tools.call("list_design", Map.of("type", "widget")).error());
         expect(before, calls.size());
         expect(30, DesignTools.collections().size());
         expect(7, DesignTools.singletons().size());
+        expect(false, sample().allowWrite);
+    }
+
+    private static void keepsAShortListAndAWholeElement() {
+        RecordingKyber kyber = new RecordingKyber();
+        kyber.reply = """
+                {"Forms":["A","B","C"],"elements":[{"name":"A"},{"name":"B"},{"name":"C"}]}""";
+        DesignTools tools = new DesignTools(sample(), kyber);
+        DesignTools.ToolResult limited = tools.call("list_design", Map.of("type", "form", "limit", 1));
+        expect(false, limited.error());
+        Map<String, Object> json = Json.object(Json.parse(limited.text()));
+        expect(List.of("A"), json.get("Forms"));
+        expect(1, ((List<?>) json.get("elements")).size());
+        expect(Boolean.TRUE, json.get("truncated"));
+        expect(1, ((Number) json.get("returned")).intValue());
+        expect(3, ((Number) json.get("total")).intValue());
+        expect(true, tools.call("list_design", Map.of("type", "form", "limit", 0)).error());
+
+        String dxl = "y".repeat(DesignTools.MAX_CHARS);
+        String body = "{\"name\":\"Main\",\"unid\":\"AABBCCDDEEFF00112233445566778899\",\"dxl\":\"" + dxl + "\"}";
+        Map<String, Object> clipped = Json.object(Json.parse(DesignTools.clip(body)));
+        expect(Boolean.TRUE, clipped.get("truncated"));
+        expect(null, clipped.get("dxl"));
+        expect("Main", clipped.get("name"));
+        expect("AABBCCDDEEFF00112233445566778899", clipped.get("unid"));
+        expect(Long.valueOf(body.length()), ((Number) clipped.get("chars")).longValue());
+
+        String raw = "z".repeat(DesignTools.MAX_CHARS + 8);
+        String summary = DesignTools.clip(raw);
+        expect(false, summary.contains("zzzz"));
+        expect(Boolean.TRUE, Json.object(Json.parse(summary)).get("truncated"));
+        expect("{}", DesignTools.clip("{}"));
+    }
+
+    private static void writesStayOffUntilAsked() {
+        RecordingKyber kyber = new RecordingKyber();
+        DesignTools tools = new DesignTools(sample(), kyber);
+        expect(false, tools.writesEnabled());
+        expect(4, tools.names().size());
+        DesignTools.ToolResult refused = tools.call("create_design", Map.of("type", "form", "name", "Main"));
+        expect(true, refused.error());
+        expect(0, kyber.calls.size());
+        McpProtocol protocol = new McpProtocol(tools);
+        McpProtocol.HttpReply listed = protocol.handle("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/list"}""");
+        List<?> definitions = (List<?>) Json.object(Json.object(Json.parse(listed.body())).get("result")).get("tools");
+        expect(4, definitions.size());
+        expect(Boolean.TRUE, Json.object(Json.object(definitions.get(1)).get("annotations")).get("readOnlyHint"));
+        McpProtocol.HttpReply call = protocol.handle("""
+                {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_design","arguments":{"type":"form","name":"Main"}}}""");
+        expect(Boolean.TRUE, Json.object(Json.object(Json.parse(call.body())).get("result")).get("isError"));
+        expect(0, kyber.calls.size());
+    }
+
+    private static void writesThroughKyberWhenAllowed() {
+        RecordingKyber kyber = new RecordingKyber();
+        kyber.reply = "{\"ok\":true}";
+        DesignTools tools = new DesignTools(writable(), kyber);
+        expect(true, tools.writesEnabled());
+        expect(8, tools.names().size());
+
+        expect(false, tools.call("create_design", Map.of("type", "form", "name", "Main")).error());
+        expect("POST /api/kyber-v1/forms?nsfPath=aldhanitest.nsf&name=Main", kyber.calls.get(kyber.calls.size() - 1));
+        expect("", kyber.body);
+        expect("text/xml; charset=utf-8", kyber.contentType);
+
+        expect(false, tools.call("create_design", Map.of(
+                "type", "agent", "name", "Nightly", "kind", "java", "dxl", "<agent/>")).error());
+        expect(true, kyber.calls.get(kyber.calls.size() - 1).contains("kind=java"));
+        expect("<agent/>", kyber.body);
+
+        expect(false, tools.call("update_design", Map.of("type", "form", "name", "Main", "dxl", "<form/>")).error());
+        expect("PUT /api/kyber-v1/forms/Main?nsfPath=aldhanitest.nsf", kyber.calls.get(kyber.calls.size() - 1));
+        expect("<form/>", kyber.body);
+
+        int before = kyber.calls.size();
+        expect(true, tools.call("update_design", Map.of("type", "acl", "dxl", "<acl/>")).error());
+        expect(true, tools.call("create_design", Map.of("type", "applicationproperties")).error());
+        expect(true, tools.call("delete_design", Map.of("type", "dbicon")).error());
+        expect(before, kyber.calls.size());
+
+        expect(false, tools.call("update_design", Map.of("type", "dbicon", "dxl", "<imageresource/>")).error());
+        expect("PUT /api/kyber-v1/dbicon?nsfPath=aldhanitest.nsf", kyber.calls.get(kyber.calls.size() - 1));
+
+        expect(false, tools.call("delete_design", Map.of("type", "form", "name", "Main")).error());
+        expect("DELETE /api/kyber-v1/forms/Main?nsfPath=aldhanitest.nsf", kyber.calls.get(kyber.calls.size() - 1));
+
+        expect(false, tools.call("validate_design", Map.of("elements", List.of(
+                Map.of("type", "forms", "name", "Main", "dxl", "<form/>"),
+                Map.of("type", "sharedaction", "name", "Save", "dxl", "<sharedactions/>")))).error());
+        expect("POST /api/kyber-v1/validate?nsfPath=aldhanitest.nsf", kyber.calls.get(kyber.calls.size() - 1));
+        expect("application/json; charset=utf-8", kyber.contentType);
+        expect(true, kyber.body.contains("\"type\":\"form\""));
+        expect(true, kyber.body.contains("\"type\":\"sharedactions\""));
+
+        McpProtocol protocol = new McpProtocol(tools);
+        McpProtocol.HttpReply listed = protocol.handle("""
+                {"jsonrpc":"2.0","id":1,"method":"tools/list"}""");
+        List<?> definitions = (List<?>) Json.object(Json.object(Json.parse(listed.body())).get("result")).get("tools");
+        expect(8, definitions.size());
+        Map<String, Object> delete = Json.object(definitions.get(6));
+        expect("delete_design", delete.get("name"));
+        expect(Boolean.TRUE, Json.object(delete.get("annotations")).get("destructiveHint"));
+        expect(Boolean.TRUE, Json.object(Json.object(definitions.get(7)).get("annotations")).get("readOnlyHint"));
     }
 
     private static void speaksMcp() {
@@ -131,6 +236,37 @@ public final class AldhaniSelfTest {
                   "bearerToken": "token",
                   "allowedNsf": ["aldhanitest.nsf"]
                 }""");
+    }
+
+    private static AldhaniConfig writable() {
+        return AldhaniConfig.parse("""
+                {
+                  "kyberBaseUrl": "https://domino.example",
+                  "kyberUser": "reader",
+                  "kyberPassword": "secret",
+                  "bearerToken": "token",
+                  "allowedNsf": ["aldhanitest.nsf"],
+                  "allowWrite": true
+                }""");
+    }
+
+    private static final class RecordingKyber implements KyberExchange {
+        final List<String> calls = new ArrayList<>();
+        String body;
+        String contentType;
+        String reply = "{}";
+
+        public String get(String pathAndQuery) {
+            calls.add("GET " + pathAndQuery);
+            return reply;
+        }
+
+        public String exchange(String method, String pathAndQuery, String body, String contentType) {
+            calls.add(method + " " + pathAndQuery);
+            this.body = body;
+            this.contentType = contentType;
+            return reply;
+        }
     }
 
     private static void expect(Object expected, Object actual) {

@@ -2,15 +2,15 @@
 
 An MCP server for an AI agent that creates, reads, updates, and deletes Domino design through Kyber.
 
-Aldhani is a read-only MCP server for HCL Domino design. It runs as an OSGi servlet on the Domino HTTP task and answers MCP at `POST /mcp`. Every design read is a Kyber call on DRAPI. Kyber remains the API that changes design.
+Aldhani is an MCP server for HCL Domino design. It runs as an OSGi servlet on the Domino HTTP task and answers MCP at `POST /mcp`. Every design call is a Kyber call on DRAPI. Kyber remains the API that changes design. Writes are off unless `allowWrite` is true.
 
-Version 0.1.2. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
+Version 0.1.3. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
 
 ## Purpose
 
-An agent needs to read Domino design through the products Infoware already runs. The agent speaks MCP. Domino is where that endpoint lives, because Domino is the product being worked on and the servlet installs on another Domino server the same way Kyber's jar does. Kyber on DRAPI is the design API, and it stays the only component that creates or updates a design element.
+An agent needs to work with Domino design through the products Infoware already runs. The agent speaks MCP. Domino is where that endpoint lives, because Domino is the product being worked on and the servlet installs on another Domino server the same way Kyber's jar does. Kyber on DRAPI is the design API, and it stays the only component that creates or updates a design element.
 
-Aldhani translates MCP into Kyber reads and limits which NSF files the agent may ask about. DRAPI can stay on the server. The agent reaches `/mcp` on the HTTP task. Design changes, import, validate, and ACL updates stay Kyber calls, made by whatever client is allowed to write.
+Aldhani translates MCP into Kyber calls and limits which NSF files the agent may ask about. DRAPI can stay on the server. The agent reaches `/mcp` on the HTTP task. `kyberUser` is the identity Kyber sees, for reads and for writes. Database delete, a full design import, and an ACL replacement are not tools.
 
 ## How a call moves
 
@@ -23,7 +23,7 @@ sequenceDiagram
   Client->>HTTP: POST /mcp
   Note over Client,HTTP: Authorization: Aldhani token
   HTTP->>Aldhani: servlet
-  Aldhani->>Kyber: GET /api/kyber-v1 as kyberUser
+  Aldhani->>Kyber: /api/kyber-v1 as kyberUser
   Kyber-->>Aldhani: JSON, including DXL
   Aldhani-->>Client: MCP tools/call result
 ```
@@ -37,9 +37,9 @@ The allowlist is applied before Kyber is called. A path that contains `..`, star
 
 ## What this version leaves to Kyber
 
-Kyber still creates and updates design elements, imports DXL, validates DXL, and changes the ACL. Aldhani has no write tools. Database delete, full import, and ACL updates are not exposed.
+With `allowWrite` false, Aldhani only reads. With `allowWrite` true, `create_design`, `update_design`, `delete_design`, and `validate_design` call the matching Kyber route. `validate_design` writes nothing. Database delete, a full design import, and replacing the ACL stay in Kyber and are not tools.
 
-A tool result is text and is clipped at 100 000 characters, with a trailing `… truncated`. A clipped body can end inside a JSON string. Prefer `list_design` and then `get_design` for one element. `list_design` with `type` `defaults`, and `export_design`, are the calls most likely to hit the limit.
+A tool result is text. A body over 100 000 characters is returned as JSON with `truncated` and `chars`, plus `name` and `unid` when the payload has them. The DXL is left out, so the result is never cut in the middle of a string. `list_design` takes an optional `limit` and keeps the first rows. Prefer that, then `get_design` for one element.
 
 ## Requirements
 
@@ -56,7 +56,7 @@ DRAPI's data port can stay unpublished. Aldhani calls it from the same machine. 
 .\build.ps1
 ```
 
-The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.2.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
+The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.3.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
 
 `target\` is gitignored.
 
@@ -64,8 +64,8 @@ The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `t
 
 The HTTP task loads the feature only when it is listed in `platform.xml`. The applications site on Domino uses the `USER-EXCLUDE` policy, and Equinox reads the feature as a directory, so copying a jar into `plugins` is not enough. `install.ps1` does three things:
 
-- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.2.jar`
-- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.2\`
+- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.3.jar`
+- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.3\`
 - adds the feature under the applications site in `domino\workspace\.config\org.eclipse.update\platform.xml`
 
 Stop HTTP first. On shutdown the HTTP task rewrites `platform.xml` from memory, so an edit made while HTTP is running is lost. `tell http restart` does not reload this configuration.
@@ -94,6 +94,7 @@ Copy `aldhani.json.example` to `<Domino data>\aldhani.json`. `ALDHANI_CONFIG` ca
 | `bearerToken` | Token the MCP client must send. |
 | `allowedNsf` | NSF paths Kyber may be asked about. At least one. |
 | `insecureTls` | Trust DRAPI's certificate and skip hostname checks. Use this for a private certificate on the same server. |
+| `allowWrite` | When true, list the four write tools. Missing or false keeps an existing install read-only. |
 
 `aldhani.json`, `.env`, and `.cursor/mcp.json` hold passwords and tokens. They are gitignored.
 
@@ -140,7 +141,7 @@ The result has `allowedNsf`, `databases` (`nsfPath`, `replicaId`, `dbTitle`), an
 
 ### list_design
 
-Lists one collection in an allowed NSF. `type` is required. Singular and plural names both work (`form` and `forms`).
+Lists one collection in an allowed NSF. `type` is required. Singular and plural names both work (`form` and `forms`). `limit` keeps the first rows. When the collection is longer, the result has `truncated`, `returned`, and `total`.
 
 | `type` | What Kyber lists |
 | --- | --- |
@@ -174,7 +175,6 @@ Lists one collection in an allowed NSF. `type` is required. Singular and plural 
 | `webcontent` | WebContent files |
 | `xpages` | XPages |
 | `xpagesresources` | XPages project files |
-| `defaults` | Kyber design templates. This call does not take an NSF. |
 
 A database note is not a collection. Read it with `get_design`.
 
@@ -184,15 +184,25 @@ Returns one Kyber JSON object, including its DXL.
 
 - For a collection, `name` is the element name. XPages resource paths may contain a slash.
 - For a database note, omit `name`. `type` is one of `about`, `acl`, `applicationproperties`, `databasescript`, `dbicon`, `using`, `xspproperties`.
-- For a Kyber template, `type` is `defaults` and `name` is the template type (`form`, `view`, and the other template types). `kind` is the template kind when the type is an agent, a script library, or a Java source: `lotusscript`, `formula`, `simpleaction`, `java`, `importedjava`, `javascript`, `ssjs`, `class`, `interface`, or `enum`.
 
 ### export_design
 
 Exports the design of one allowed NSF as DXL. The body is large. List and get are the better tools when one element is enough.
 
+### create_design, update_design, delete_design, validate_design
+
+Listed only when `allowWrite` is true. They call Kyber as `kyberUser`.
+
+- `create_design` posts to the collection. `name` is required. Omit `dxl` to copy Kyber's starter. Agents, script libraries, and Java sources take `kind`. `about`, `using`, `databasescript`, and `xspproperties` can be created. `acl`, `applicationproperties`, and `dbicon` cannot.
+- `update_design` puts DXL onto an existing element or database note. `acl` cannot be replaced. `applicationproperties` and `dbicon` can.
+- `delete_design` deletes a named element, or `about`, `using`, `databasescript`, or `xspproperties`. `acl`, `applicationproperties`, and `dbicon` cannot be deleted.
+- `validate_design` posts `{elements:[{type, name, dxl, delete}]}` to `POST /validate` and writes nothing. `dxl` is required unless `delete` is true.
+
+Read tools are marked read-only. `delete_design` is marked destructive.
+
 ## Smoke
 
-`smoke.ps1` calls a running servlet. It checks anonymous rejection, then reads every collection and every database note in `aldhanitest.nsf`, including `SmokeForm`, `SmokeView`, the `SmokeAgent*` agents, and `SmokeXPage.xsp`. It also reads Kyber's `defaults` templates, exports the design, and checks that `kybertest.nsf` is refused.
+`smoke.ps1` calls a running servlet. It checks anonymous and wrong-token rejection, `GET` and `DELETE` 405, ping, an unknown method, and the read-only and destructive hints. It reads every collection and every database note in `aldhanitest.nsf`, including `SmokeForm`, `SmokeView`, the `SmokeAgent*` agents, and `SmokeXPage.xsp`. Each sampled element has a UNID on the list and on the get. `limit` on agents keeps the first row. `type=defaults` is refused. The export is either full DXL or a JSON object with `truncated` and `chars` and no DXL. `kybertest.nsf` is refused. When the write tools are listed, the run creates `AldhaniSmokeProbe`, updates it, refuses an ACL replace, validates a broken form without writing, and deletes the probe. When they are not listed, calling them is an error.
 
 ```powershell
 .\smoke.ps1

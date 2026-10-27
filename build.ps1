@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$version = "0.1.2"
+$version = "0.1.3"
 $servlet = "C:\Domino\osgi\rcp\eclipse\plugins\com.ibm.pvc.servlet_2.5.0.20260601-1307.jar"
 $javac = "C:\Domino\jvm\bin\javac.exe"
 $jar = "C:\Domino\jvm\bin\jar.exe"

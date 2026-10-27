@@ -17,6 +17,7 @@ final class AldhaniConfig {
     final String bearerToken;
     final List<String> allowedNsf;
     final boolean insecureTls;
+    final boolean allowWrite;
 
     private AldhaniConfig(
             String kyberBaseUrl,
@@ -24,13 +25,15 @@ final class AldhaniConfig {
             String kyberPassword,
             String bearerToken,
             List<String> allowedNsf,
-            boolean insecureTls) {
+            boolean insecureTls,
+            boolean allowWrite) {
         this.kyberBaseUrl = kyberBaseUrl;
         this.kyberUser = kyberUser;
         this.kyberPassword = kyberPassword;
         this.bearerToken = bearerToken;
         this.allowedNsf = List.copyOf(allowedNsf);
         this.insecureTls = insecureTls;
+        this.allowWrite = allowWrite;
     }
 
     static Path configFile() {
@@ -66,13 +69,15 @@ final class AldhaniConfig {
         }
         Object tls = root.get("insecureTls");
         boolean insecure = Boolean.TRUE.equals(tls);
+        boolean allowWrite = Boolean.TRUE.equals(root.get("allowWrite"));
         return new AldhaniConfig(
                 base,
                 required(root, "kyberUser"),
                 required(root, "kyberPassword"),
                 required(root, "bearerToken"),
                 paths,
-                insecure);
+                insecure,
+                allowWrite);
     }
 
     static String normalizeNsf(String path) {
