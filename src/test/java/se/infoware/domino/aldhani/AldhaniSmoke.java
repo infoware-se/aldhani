@@ -94,6 +94,24 @@ public final class AldhaniSmoke {
             }
         }
 
+        for (String type : DesignTools.collections()) {
+            Json.object(Json.parse(tool(http, url, config.bearerToken, "list_design", Map.of("type", type, "nsfPath", NSF))));
+        }
+        for (String type : DesignTools.singletons()) {
+            String dxl = Json.string(Json.object(Json.parse(
+                    tool(http, url, config.bearerToken, "get_design", Map.of("type", type, "nsfPath", NSF)))).get("dxl"));
+            if (dxl == null || dxl.isBlank()) {
+                throw new AssertionError(type + " returned no DXL");
+            }
+        }
+        String templates = tool(http, url, config.bearerToken, "list_design", Map.of("type", "defaults"));
+        if (!templates.contains("\"elements\"") && !templates.contains("\"defaultNsf\"")) {
+            throw new AssertionError("defaults returned no elements");
+        }
+        if (!tool(http, url, config.bearerToken, "get_design", Map.of("type", "defaults", "name", "form")).contains("\"dxl\"")) {
+            throw new AssertionError("defaults form template returned no DXL");
+        }
+
         String refused = tool(http, url, config.bearerToken, "get_design", Map.of(
                 "type", "form",
                 "name", "SmokeForm",
@@ -107,6 +125,8 @@ public final class AldhaniSmoke {
             throw new AssertionError("export_design did not return DXL for " + NSF);
         }
         System.out.println("aldhani smoke ok: " + NSF
+                + " collections=" + DesignTools.collections().size()
+                + " notes=" + DesignTools.singletons().size()
                 + " form=SmokeForm view=SmokeView agents=5 xpage=SmokeXPage.xsp");
     }
 

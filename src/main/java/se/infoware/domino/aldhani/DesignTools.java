@@ -9,15 +9,63 @@ import java.util.Set;
 final class DesignTools {
     static final int MAX_CHARS = 100_000;
 
-    private static final Map<String, String> TYPES = Map.of(
-            "form", "forms",
-            "forms", "forms",
-            "view", "views",
-            "views", "views",
-            "agent", "agents",
-            "agents", "agents",
-            "xpage", "xpages",
-            "xpages", "xpages");
+    private static final Map<String, String> COLLECTIONS = new LinkedHashMap<>();
+    private static final List<String> COLLECTION_NAMES;
+    private static final List<String> SINGLETONS = List.of(
+            "about",
+            "acl",
+            "applicationproperties",
+            "databasescript",
+            "dbicon",
+            "using",
+            "xspproperties");
+    private static final Set<String> FILE_TYPES = Set.of(
+            "database", "notes_database", "1247",
+            "template", "1248",
+            "replica_candidate", "1245",
+            "template_candidate", "1246");
+
+    static {
+        alias("agents", "agent");
+        alias("applets", "applet");
+        alias("compositeapplications", "compositeapplication");
+        alias("compositecomponents", "compositecomponent");
+        alias("customcontrols", "customcontrol");
+        alias("dataconnections", "dataconnection");
+        alias("fileresources", "fileresource");
+        alias("folders", "folder");
+        alias("forms", "form");
+        alias("framesets", "frameset");
+        alias("images", "image");
+        alias("jars", "jar");
+        alias("javasources", "javasource");
+        alias("navigators", "navigator");
+        alias("outlines", "outline");
+        alias("pages", "page");
+        alias("scriptlibraries", "scriptlibrary");
+        alias("sharedactions", "sharedaction");
+        alias("sharedcolumns", "sharedcolumn");
+        alias("sharedfields", "sharedfield");
+        alias("stylesheets", "stylesheet");
+        alias("subforms", "subform");
+        alias("themes", "theme");
+        alias("views", "view");
+        alias("webcontent", "webcontent");
+        alias("webserviceconsumers", "webserviceconsumer");
+        alias("webservices", "webservice");
+        alias("wiringproperties", "wiringproperty");
+        alias("xpages", "xpage");
+        alias("xpagesresources", "xpagesresource");
+        COLLECTION_NAMES = List.copyOf(new java.util.LinkedHashSet<>(COLLECTIONS.values()));
+    }
+
+    static List<String> collections() {
+        return COLLECTION_NAMES;
+    }
+
+    static List<String> singletons() {
+        return SINGLETONS;
+    }
 
     private final AldhaniConfig config;
     private final KyberGet kyber;
@@ -30,7 +78,7 @@ final class DesignTools {
     ToolResult call(String name, Map<String, Object> arguments) {
         try {
             String text = switch (name) {
-                case "list_databases" -> listDatabases();
+                case "list_databases" -> listDatabases(arguments);
                 case "list_design" -> listDesign(arguments);
                 case "get_design" -> getDesign(arguments);
                 case "export_design" -> exportDesign(arguments);
@@ -47,8 +95,16 @@ final class DesignTools {
         }
     }
 
-    private String listDatabases() {
-        String body = kyber.get("/api/kyber-v1/databases?" + KyberClient.query("fileType", "database"));
+    private String listDatabases(Map<String, Object> arguments) {
+        String fileType = Json.string(arguments.get("fileType"));
+        if (fileType == null || fileType.isBlank()) {
+            fileType = "database";
+        }
+        if (!FILE_TYPES.contains(fileType)) {
+            throw new IllegalArgumentException(
+                    "fileType must be database, template, replica_candidate, or template_candidate");
+        }
+        String body = kyber.get("/api/kyber-v1/databases?" + KyberClient.query("fileType", fileType));
         Map<String, Object> json = Json.object(Json.parse(body));
         Object raw = json.get("databases");
         List<Object> present = new ArrayList<>();
@@ -85,17 +141,34 @@ final class DesignTools {
     }
 
     private String listDesign(Map<String, Object> arguments) {
-        String collection = collection(arguments);
-        String nsf = nsf(arguments);
-        return kyber.get("/api/kyber-v1/" + collection + "?" + KyberClient.query("nsfPath", nsf));
+        DesignKind kind = resolve(required(arguments, "type"));
+        if (kind.singleton) {
+            throw new IllegalArgumentException(kind.path + " is one design note; use get_design");
+        }
+        if (kind.defaults) {
+            return kyber.get("/api/kyber-v1/defaults");
+        }
+        return kyber.get("/api/kyber-v1/" + kind.path + "?" + KyberClient.query("nsfPath", nsf(arguments)));
     }
 
     private String getDesign(Map<String, Object> arguments) {
-        String collection = collection(arguments);
+        DesignKind kind = resolve(required(arguments, "type"));
+        if (kind.singleton) {
+            if (present(arguments, "name")) {
+                throw new IllegalArgumentException(kind.path + " has no element name");
+            }
+            return kyber.get("/api/kyber-v1/" + kind.path + "?" + KyberClient.query("nsfPath", nsf(arguments)));
+        }
         String name = required(arguments, "name");
-        String nsf = nsf(arguments);
-        return kyber.get("/api/kyber-v1/" + collection + "/" + KyberClient.pathSegment(name)
-                + "?" + KyberClient.query("nsfPath", nsf));
+        if (kind.defaults) {
+            String path = "/api/kyber-v1/defaults/" + KyberClient.pathSegment(name);
+            if (present(arguments, "kind")) {
+                path += "?" + KyberClient.query("kind", Json.string(arguments.get("kind")));
+            }
+            return kyber.get(path);
+        }
+        return kyber.get("/api/kyber-v1/" + kind.path + "/" + KyberClient.pathSegment(name)
+                + "?" + KyberClient.query("nsfPath", nsf(arguments)));
     }
 
     private String exportDesign(Map<String, Object> arguments) {
@@ -103,13 +176,31 @@ final class DesignTools {
         return kyber.get("/api/kyber-v1/export?" + KyberClient.query("nsfPath", nsf));
     }
 
-    private String collection(Map<String, Object> arguments) {
-        String type = required(arguments, "type");
-        String collection = TYPES.get(AldhaniConfig.lower(type));
-        if (collection == null) {
-            throw new IllegalArgumentException("type must be form, view, agent, or xpage");
+    private static void alias(String plural, String singular) {
+        COLLECTIONS.put(plural, plural);
+        if (!plural.equals(singular)) {
+            COLLECTIONS.put(singular, plural);
         }
-        return collection;
+    }
+
+    private static DesignKind resolve(String type) {
+        String key = AldhaniConfig.lower(type);
+        if ("defaults".equals(key)) {
+            return new DesignKind("defaults", false, true);
+        }
+        if (SINGLETONS.contains(key)) {
+            return new DesignKind(key, true, false);
+        }
+        String collection = COLLECTIONS.get(key);
+        if (collection == null) {
+            throw new IllegalArgumentException("Unknown Kyber design type " + type);
+        }
+        return new DesignKind(collection, false, false);
+    }
+
+    private static boolean present(Map<String, Object> arguments, String key) {
+        String value = Json.string(arguments.get(key));
+        return value != null && !value.isBlank();
     }
 
     private String nsf(Map<String, Object> arguments) {
@@ -148,5 +239,8 @@ final class DesignTools {
     }
 
     record ToolResult(String text, boolean error) {
+    }
+
+    private record DesignKind(String path, boolean singleton, boolean defaults) {
     }
 }

@@ -10,6 +10,7 @@ public final class AldhaniSelfTest {
         rejectsUnsafePaths();
         listsOnlyTheSandbox();
         refusesDatabasesOutsideTheAllowlist();
+        readsTheKyberCatalog();
         speaksMcp();
         System.out.println("aldhani self-test ok");
     }
@@ -70,6 +71,29 @@ public final class AldhaniSelfTest {
                 "nsfPath", "kybertest.nsf"));
         expect(true, result.error());
         expect(0, calls.size());
+    }
+
+    private static void readsTheKyberCatalog() {
+        List<String> calls = new ArrayList<>();
+        DesignTools tools = new DesignTools(sample(), path -> {
+            calls.add(path);
+            return "{}";
+        });
+        expect(false, tools.call("list_design", Map.of("type", "page")).error());
+        expect("/api/kyber-v1/pages?nsfPath=aldhanitest.nsf", calls.get(calls.size() - 1));
+        expect(false, tools.call("get_design", Map.of("type", "acl")).error());
+        expect("/api/kyber-v1/acl?nsfPath=aldhanitest.nsf", calls.get(calls.size() - 1));
+        expect(true, tools.call("get_design", Map.of("type", "acl", "name", "Main")).error());
+        expect(false, tools.call("list_design", Map.of("type", "defaults")).error());
+        expect("/api/kyber-v1/defaults", calls.get(calls.size() - 1));
+        expect(false, tools.call("get_design", Map.of("type", "defaults", "name", "form", "kind", "lotusscript")).error());
+        expect("/api/kyber-v1/defaults/form?kind=lotusscript", calls.get(calls.size() - 1));
+        int before = calls.size();
+        expect(true, tools.call("get_design", Map.of("type", "form")).error());
+        expect(true, tools.call("list_design", Map.of("type", "widget")).error());
+        expect(before, calls.size());
+        expect(30, DesignTools.collections().size());
+        expect(7, DesignTools.singletons().size());
     }
 
     private static void speaksMcp() {

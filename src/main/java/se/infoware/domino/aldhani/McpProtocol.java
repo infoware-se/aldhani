@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.Set;
 
 final class McpProtocol {
-    static final String VERSION = "0.1.1";
+    static final String VERSION = "0.1.2";
     private static final Set<String> PROTOCOL_VERSIONS = Set.of(
             "2024-11-05",
             "2025-03-26",
@@ -102,20 +102,26 @@ final class McpProtocol {
                         "list_databases",
                         "Lists the Kyber-enabled databases Aldhani is allowed to see. "
                                 + "aldhanitest.nsf is the sandbox. Other databases are omitted.",
-                        Map.of()),
+                        Map.of(
+                                "fileType", prop("string",
+                                        "database (default), template, replica_candidate, or template_candidate"))),
                 tool(
                         "list_design",
-                        "Lists design elements of one type in an allowed NSF. "
-                                + "Use this before reading a single element.",
+                        "Lists one Kyber design collection in an allowed NSF. "
+                                + "type defaults lists Kyber design templates and does not read an NSF. "
+                                + "A database note such as acl is read with get_design.",
                         Map.of(
-                                "type", prop("string", "form, view, agent, or xpage"),
+                                "type", prop("string", typeDescription()),
                                 "nsfPath", prop("string", "NSF path. Defaults to the only allowed database."))),
                 tool(
                         "get_design",
-                        "Returns one design element as Kyber JSON, including its DXL.",
+                        "Returns one design element, one database note, or one Kyber design template, including its DXL.",
                         Map.of(
-                                "type", prop("string", "form, view, agent, or xpage"),
-                                "name", prop("string", "Design element name"),
+                                "type", prop("string", typeDescription()),
+                                "name", prop("string",
+                                        "Element name. Template type when type is defaults. Omit for a database note."),
+                                "kind", prop("string",
+                                        "Template kind when type is defaults and the template is an agent, script library, or Java source."),
                                 "nsfPath", prop("string", "NSF path. Defaults to the only allowed database."))),
                 tool(
                         "export_design",
@@ -128,13 +134,19 @@ final class McpProtocol {
         schema.put("type", "object");
         schema.put("properties", properties);
         if ("list_design".equals(name) || "get_design".equals(name)) {
-            schema.put("required", "get_design".equals(name) ? List.of("type", "name") : List.of("type"));
+            schema.put("required", List.of("type"));
         }
         Map<String, Object> tool = new LinkedHashMap<>();
         tool.put("name", name);
         tool.put("description", description);
         tool.put("inputSchema", schema);
         return tool;
+    }
+
+    private static String typeDescription() {
+        return "Collection: " + String.join(", ", DesignTools.collections())
+                + ". Database note: " + String.join(", ", DesignTools.singletons())
+                + ". defaults for a Kyber design template.";
     }
 
     private static Map<String, Object> prop(String type, String description) {
