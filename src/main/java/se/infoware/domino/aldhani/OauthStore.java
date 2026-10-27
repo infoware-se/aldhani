@@ -86,6 +86,9 @@ final class OauthStore {
             String subject,
             String presentedToken,
             String expectedToken) {
+        if (clientId == null || clientId.isBlank()) {
+            throw new IllegalArgumentException("invalid_request");
+        }
         if (!"S256".equals(method) || challenge == null || challenge.length() < 43) {
             throw new IllegalArgumentException("code_challenge must be S256");
         }
@@ -106,6 +109,9 @@ final class OauthStore {
     }
 
     Access exchangeCode(String clientId, String redirect, String code, String verifier, String issuer, String audience) {
+        if (clientId == null || clientId.isBlank() || redirect == null || redirect.isBlank() || code == null || code.isBlank()) {
+            throw new IllegalArgumentException("invalid_request");
+        }
         Code stored = codes.remove(code);
         if (stored == null || stored.expires < Instant.now().getEpochSecond()) {
             throw new IllegalArgumentException("invalid_grant");
@@ -120,6 +126,9 @@ final class OauthStore {
     }
 
     Access refresh(String refreshToken, String issuer, String audience) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new IllegalArgumentException("invalid_request");
+        }
         String hash = sha256(refreshToken);
         Refresh stored = refreshes.remove(hash);
         if (stored == null || stored.expires < Instant.now().getEpochSecond()) {
@@ -136,6 +145,15 @@ final class OauthStore {
         } catch (IllegalArgumentException ex) {
             return false;
         }
+    }
+
+    /** OAuth error object. A known code is the error; any other message is invalid_request. */
+    static Map<String, Object> errorBody(String message) {
+        String code = message == null ? "invalid_request" : message;
+        if ("invalid_request".equals(code) || "invalid_grant".equals(code) || "unsupported_grant_type".equals(code)) {
+            return Map.of("error", code);
+        }
+        return Map.of("error", "invalid_request", "error_description", code);
     }
 
     static Map<String, Object> resource(String origin) {

@@ -21,8 +21,8 @@ public class McpServlet extends HttpServlet {
     private static final int MAX_BODY = 1_000_000;
 
     private final Object gate = new Object();
+    private final ConfigReload configs = new ConfigReload();
     private Path configFile;
-    private long configStamp = Long.MIN_VALUE;
     private String configError;
     private McpProtocol protocol;
 
@@ -137,26 +137,25 @@ public class McpServlet extends HttpServlet {
 
     private McpProtocol refresh(boolean logSuccess) {
         synchronized (gate) {
+            long stamp = Long.MIN_VALUE;
             try {
-                long stamp = Files.getLastModifiedTime(configFile).toMillis();
-                if (protocol != null && stamp == configStamp) {
-                    return protocol;
-                }
-                AldhaniConfig config = AldhaniConfig.load(configFile);
-                protocol = new McpProtocol(new DesignTools(config, new KyberClient(config)));
-                configStamp = stamp;
-                configError = null;
-                if (logSuccess) {
-                    LOG.info("Aldhani loaded " + configFile);
-                }
-                return protocol;
-            } catch (Exception ex) {
-                protocol = null;
-                configStamp = Long.MIN_VALUE;
-                configError = ex.getMessage() == null ? "Could not load aldhani.json" : ex.getMessage();
-                LOG.log(Level.SEVERE, "Aldhani could not load " + configFile, ex);
-                return null;
+                stamp = Files.getLastModifiedTime(configFile).toMillis();
+            } catch (Exception ignored) {
+                stamp = Long.MIN_VALUE;
             }
+            ConfigReload.Outcome outcome = configs.apply(stamp, () -> {
+                AldhaniConfig config = AldhaniConfig.load(configFile);
+                return new McpProtocol(new DesignTools(config, new KyberClient(config)));
+            });
+            protocol = outcome.protocol();
+            configError = outcome.error();
+            if (outcome.loaded() && logSuccess) {
+                LOG.info("Aldhani loaded " + configFile);
+            }
+            if (outcome.reportFailure()) {
+                LOG.log(Level.SEVERE, "Aldhani could not load " + configFile, outcome.failure());
+            }
+            return protocol;
         }
     }
 

@@ -66,10 +66,11 @@ public class OauthServlet extends HttpServlet {
         } catch (IllegalArgumentException ex) {
             if (path.endsWith("/authorize")) {
                 response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-                writeHtml(response, postedForm(form, "The token was not accepted."));
+                String message = ex.getMessage() == null ? "invalid_request" : ex.getMessage();
+                writeHtml(response, postedForm(form, message));
                 return;
             }
-            writeJson(response, 400, Json.write(Map.of("error", "invalid_request", "error_description", ex.getMessage())));
+            writeJson(response, 400, Json.write(OauthStore.errorBody(ex.getMessage())));
             return;
         }
         response.sendError(HttpServletResponse.SC_NOT_FOUND);

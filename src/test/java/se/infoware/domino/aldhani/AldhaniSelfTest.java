@@ -16,6 +16,8 @@ public final class AldhaniSelfTest {
         writesThroughKyberWhenAllowed();
         speaksMcp();
         speaksTheCurrentProtocol();
+        readsANestedDatabaseResource();
+        keepsTheLastGoodConfig();
         cancelsARunningCall();
         issuesAnOauthBearer();
         System.out.println("aldhani self-test ok");
@@ -302,6 +304,84 @@ public final class AldhaniSelfTest {
                 {"jsonrpc":"2.0","id":10,"method":"completion/complete","params":{"argument":{"name":"nsfPath","value":"ald"}}}""");
         List<?> nsf = (List<?>) Json.object(Json.object(Json.object(Json.parse(names.body())).get("result")).get("completion")).get("values");
         expect(true, nsf.contains("aldhanitest.nsf"));
+        McpProtocol.HttpReply cursor = protocol.handle("""
+                {"jsonrpc":"2.0","id":11,"method":"prompts/list","params":{"cursor":"more"}}""");
+        expect(-32602, ((Number) Json.object(Json.object(Json.parse(cursor.body())).get("error")).get("code")).intValue());
+    }
+
+    private static void readsANestedDatabaseResource() {
+        AldhaniConfig nested = AldhaniConfig.parse("""
+                {
+                  "kyberBaseUrl": "https://domino.example",
+                  "kyberUser": "reader",
+                  "kyberPassword": "secret",
+                  "bearerToken": "token",
+                  "allowedNsf": ["mail/user.nsf", "mail"]
+                }""");
+        List<String> calls = new ArrayList<>();
+        McpProtocol protocol = new McpProtocol(new DesignTools(nested, path -> {
+            calls.add(path);
+            if (path.startsWith("/api/kyber-v1/databases")) {
+                return "{\"databases\":["
+                        + "{\"nsfPath\":\"mail/user.nsf\",\"title\":\"Mail\"},"
+                        + "{\"nsfPath\":\"mail\",\"title\":\"Dir\"}]}";
+            }
+            if (path.startsWith("/api/kyber-v1/acl")) {
+                return "{\"type\":\"acl\"}";
+            }
+            return "{\"elements\":[{\"name\":\"Main\"}]}";
+        }));
+        McpProtocol.HttpReply element = protocol.handle("""
+                {"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"aldhani://mail/user.nsf/form/Main"}}""");
+        expect(true, calls.get(0).startsWith("/api/kyber-v1/forms/Main"));
+        expect(true, calls.get(0).contains("nsfPath=mail%2Fuser.nsf"));
+        expect(true, resourceText(element).contains("Main"));
+
+        calls.clear();
+        McpProtocol.HttpReply database = protocol.handle("""
+                {"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"aldhani://mail/user.nsf"}}""");
+        expect(true, calls.get(0).startsWith("/api/kyber-v1/databases"));
+        Map<String, Object> scoped = Json.object(Json.parse(resourceText(database)));
+        expect(List.of("mail/user.nsf"), scoped.get("allowedNsf"));
+        expect(1, ((List<?>) scoped.get("databases")).size());
+        expect(List.of(), scoped.get("missing"));
+
+        calls.clear();
+        protocol.handle("""
+                {"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"aldhani://mail/user.nsf/acl"}}""");
+        expect(true, calls.get(0).startsWith("/api/kyber-v1/acl?"));
+    }
+
+    private static void keepsTheLastGoodConfig() {
+        ConfigReload reload = new ConfigReload();
+        int[] loads = {0};
+        ConfigReload.Outcome first = reload.apply(10L, () -> {
+            loads[0]++;
+            return new McpProtocol(new DesignTools(sample(), path -> "{}"));
+        });
+        expect(true, first.loaded());
+        reload.apply(10L, () -> {
+            loads[0]++;
+            return new McpProtocol(new DesignTools(sample(), path -> "{}"));
+        });
+        expect(1, loads[0]);
+        ConfigReload.Outcome broken = reload.apply(11L, () -> {
+            throw new IllegalArgumentException("allowedNsf must list at least one NSF");
+        });
+        expect(true, broken.reportFailure());
+        expect(first.protocol(), broken.protocol());
+        ConfigReload.Outcome again = reload.apply(11L, () -> {
+            throw new IllegalArgumentException("still broken");
+        });
+        expect(false, again.reportFailure());
+        expect(first.protocol(), again.protocol());
+        ConfigReload.Outcome fixed = reload.apply(12L, () -> new McpProtocol(new DesignTools(sample(), path -> "{}")));
+        expect(true, fixed.loaded());
+        expect(true, fixed.protocol() != first.protocol());
+    }
+
+    private static String resourceText(McpProtocol.HttpReply reply) {
+        return Json.string(Json.object(((List<?>) Json.object(Json.object(Json.parse(reply.body())).get("result")).get("contents")).get(0)).get("text"));
     }
 
     private static void cancelsARunningCall() throws Exception {
@@ -358,6 +438,29 @@ public final class AldhaniSelfTest {
         Map<String, Object> resource = OauthStore.resource("https://domino.example");
         expect("https://domino.example/mcp", resource.get("resource"));
         expect(List.of("https://domino.example/oauth"), resource.get("authorization_servers"));
+        try {
+            store.exchangeCode("aldhani", "http://127.0.0.1/cb", null, verifier,
+                    "https://domino.example/oauth", "https://domino.example");
+            throw new AssertionError("missing code was accepted");
+        } catch (IllegalArgumentException expected) {
+            expect("invalid_request", expected.getMessage());
+        }
+        try {
+            store.refresh(null, "https://domino.example/oauth", "https://domino.example");
+            throw new AssertionError("missing refresh token was accepted");
+        } catch (IllegalArgumentException expected) {
+            expect("invalid_request", expected.getMessage());
+        }
+        try {
+            store.authorizationRedirect(null, "http://127.0.0.1/cb", challenge, "S256", "s",
+                    "CN=Reader/O=Org", "token", "token");
+            throw new AssertionError("missing client_id was accepted");
+        } catch (IllegalArgumentException expected) {
+            expect("invalid_request", expected.getMessage());
+        }
+        expect("invalid_grant", OauthStore.errorBody("invalid_grant").get("error"));
+        expect("unsupported_grant_type", OauthStore.errorBody("unsupported_grant_type").get("error"));
+        expect("invalid_request", OauthStore.errorBody("redirect_uri is not allowed").get("error"));
 
         OauthStore.Access renewed = store.refresh(access.refreshToken(), "https://domino.example/oauth", "https://domino.example");
         expect(true, store.accessValid(renewed.accessToken()));

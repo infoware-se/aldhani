@@ -2,7 +2,7 @@
 <feature
       id="se.infoware.domino.aldhani.feature"
       label="Aldhani"
-      version="0.1.6"
+      version="0.1.7"
       provider-name="Infoware">
    <description>
       MCP endpoint on the Domino HTTP task. Design reads and writes go through Kyber.
@@ -11,6 +11,6 @@
          id="se.infoware.domino.aldhani"
          download-size="0"
          install-size="0"
-         version="0.1.6"
+         version="0.1.7"
          unpack="false"/>
 </feature>

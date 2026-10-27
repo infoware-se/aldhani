@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 final class McpProtocol {
-    static final String VERSION = "0.1.6";
+    static final String VERSION = "0.1.7";
     private static final String LATEST_PROTOCOL = "2025-11-25";
     private static final Set<String> PROTOCOL_VERSIONS = Set.of(
             "2024-11-05",
@@ -418,30 +418,88 @@ final class McpProtocol {
             throw new IllegalArgumentException("uri must start with aldhani://");
         }
         String rest = uri.substring("aldhani://".length());
-        String[] pieces = rest.split("/", 3);
-        if (pieces.length == 0 || pieces[0].isBlank()) {
-            throw new IllegalArgumentException("uri needs an NSF path");
+        String nsf = longestAllowlisted(rest);
+        if (nsf == null) {
+            throw new IllegalArgumentException("uri needs an allowlisted NSF path");
         }
-        Map<String, Object> arguments = new LinkedHashMap<>();
-        arguments.put("nsfPath", pieces[0]);
-        String tool = "list_databases";
-        if (pieces.length == 2) {
-            tool = "list_design";
-            arguments.put("type", pieces[1]);
-        } else if (pieces.length == 3) {
-            tool = "get_design";
-            arguments.put("type", pieces[1]);
-            arguments.put("name", pieces[2]);
+        String tail = rest.substring(nsf.length());
+        if (tail.startsWith("/")) {
+            tail = tail.substring(1);
         }
-        DesignTools.ToolResult outcome = tools.call(tool, arguments);
-        if (outcome.error()) {
-            throw new IllegalArgumentException(outcome.text());
+        String text;
+        if (tail.isEmpty()) {
+            DesignTools.ToolResult listed = tools.call("list_databases", Map.of());
+            if (listed.error()) {
+                throw new IllegalArgumentException(listed.text());
+            }
+            text = oneDatabase(listed.text(), nsf);
+        } else {
+            String[] pieces = tail.split("/", 2);
+            Map<String, Object> arguments = new LinkedHashMap<>();
+            arguments.put("nsfPath", nsf);
+            arguments.put("type", pieces[0]);
+            String tool = "list_design";
+            if (pieces.length == 2) {
+                tool = "get_design";
+                arguments.put("name", pieces[1]);
+            } else if (DesignTools.singletons().contains(AldhaniConfig.lower(pieces[0]))) {
+                tool = "get_design";
+            }
+            DesignTools.ToolResult outcome = tools.call(tool, arguments);
+            if (outcome.error()) {
+                throw new IllegalArgumentException(outcome.text());
+            }
+            text = outcome.text();
         }
         Map<String, Object> content = new LinkedHashMap<>();
         content.put("uri", uri);
         content.put("mimeType", "application/json");
-        content.put("text", outcome.text());
+        content.put("text", text);
         return Map.of("contents", List.of(content));
+    }
+
+    /** The allowlist entry that matches the URI. A nested NSF beats a shorter prefix. */
+    private String longestAllowlisted(String rest) {
+        String found = null;
+        for (String allowed : tools.allowedNsf()) {
+            boolean exact = rest.equalsIgnoreCase(allowed);
+            boolean nested = rest.length() > allowed.length()
+                    && rest.regionMatches(true, 0, allowed, 0, allowed.length())
+                    && rest.charAt(allowed.length()) == '/';
+            if ((exact || nested) && (found == null || allowed.length() > found.length())) {
+                found = allowed;
+            }
+        }
+        return found;
+    }
+
+    private static String oneDatabase(String text, String nsf) {
+        Map<String, Object> json = Json.object(Json.parse(text));
+        List<Object> present = new ArrayList<>();
+        Object raw = json.get("databases");
+        if (raw instanceof List<?> databases) {
+            for (Object item : databases) {
+                if (!(item instanceof Map<?, ?> map)) {
+                    continue;
+                }
+                String path = Json.string(Json.object(map).get("nsfPath"));
+                if (path == null) {
+                    continue;
+                }
+                try {
+                    if (nsf.equalsIgnoreCase(AldhaniConfig.normalizeNsf(path))) {
+                        present.add(item);
+                    }
+                } catch (IllegalArgumentException ignored) {
+                    // A Kyber path outside the allowlist rules is not this resource.
+                }
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("allowedNsf", List.of(nsf));
+        result.put("databases", present);
+        result.put("missing", present.isEmpty() ? List.of(nsf) : List.of());
+        return Json.write(result);
     }
 
     private Map<String, Object> complete(Map<String, Object> params) {
@@ -519,7 +577,7 @@ final class McpProtocol {
 
     private Map<String, Object> listPrompts(Map<String, Object> params) {
         if (params.get("cursor") != null) {
-            return Map.of("prompts", List.of());
+            throw new IllegalArgumentException("Unknown cursor");
         }
         return Map.of("prompts", prompts());
     }
