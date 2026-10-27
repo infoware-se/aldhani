@@ -145,7 +145,9 @@ public class McpServlet extends HttpServlet {
             }
             ConfigReload.Outcome outcome = configs.apply(stamp, () -> {
                 AldhaniConfig config = AldhaniConfig.load(configFile);
-                return new McpProtocol(new DesignTools(config, new KyberClient(config)));
+                McpProtocol loaded = new McpProtocol(new DesignTools(config, new KyberClient(config)));
+                ActiveConfig.shared().remember(config);
+                return loaded;
             });
             protocol = outcome.protocol();
             configError = outcome.error();
@@ -174,10 +176,8 @@ public class McpServlet extends HttpServlet {
     }
 
     private String configuredOrigin() {
-        try {
-            return AldhaniConfig.load(configFile).publicBaseUrl;
-        } catch (Exception ex) {
-            return null;
+        synchronized (gate) {
+            return protocol == null ? null : protocol.config().publicBaseUrl;
         }
     }
 
@@ -217,14 +217,7 @@ public class McpServlet extends HttpServlet {
 
     private String bearer() {
         synchronized (gate) {
-            if (protocol == null) {
-                return null;
-            }
-        }
-        try {
-            return AldhaniConfig.load(configFile).bearerToken;
-        } catch (Exception ex) {
-            return null;
+            return protocol == null ? null : protocol.config().bearerToken;
         }
     }
 

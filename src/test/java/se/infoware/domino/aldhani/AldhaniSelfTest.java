@@ -18,6 +18,7 @@ public final class AldhaniSelfTest {
         speaksTheCurrentProtocol();
         readsANestedDatabaseResource();
         keepsTheLastGoodConfig();
+        rejectsAnOversizedPart();
         cancelsARunningCall();
         issuesAnOauthBearer();
         System.out.println("aldhani self-test ok");
@@ -352,12 +353,16 @@ public final class AldhaniSelfTest {
         expect(true, calls.get(0).startsWith("/api/kyber-v1/acl?"));
     }
 
-    private static void keepsTheLastGoodConfig() {
+    private static void keepsTheLastGoodConfig() throws Exception {
         ConfigReload reload = new ConfigReload();
+        ActiveConfig active = new ActiveConfig();
+        AldhaniConfig good = sample();
         int[] loads = {0};
         ConfigReload.Outcome first = reload.apply(10L, () -> {
             loads[0]++;
-            return new McpProtocol(new DesignTools(sample(), path -> "{}"));
+            McpProtocol loaded = new McpProtocol(new DesignTools(good, path -> "{}"));
+            active.remember(good);
+            return loaded;
         });
         expect(true, first.loaded());
         reload.apply(10L, () -> {
@@ -370,6 +375,10 @@ public final class AldhaniSelfTest {
         });
         expect(true, broken.reportFailure());
         expect(first.protocol(), broken.protocol());
+        expect("token", broken.protocol().config().bearerToken);
+        expect("token", active.open(() -> {
+            throw new IllegalArgumentException("allowedNsf must list at least one NSF");
+        }).bearerToken);
         ConfigReload.Outcome again = reload.apply(11L, () -> {
             throw new IllegalArgumentException("still broken");
         });
@@ -378,6 +387,24 @@ public final class AldhaniSelfTest {
         ConfigReload.Outcome fixed = reload.apply(12L, () -> new McpProtocol(new DesignTools(sample(), path -> "{}")));
         expect(true, fixed.loaded());
         expect(true, fixed.protocol() != first.protocol());
+        ActiveConfig empty = new ActiveConfig();
+        try {
+            empty.open(() -> {
+                throw new IllegalArgumentException("broken");
+            });
+            throw new AssertionError("missing config was kept");
+        } catch (IllegalArgumentException expected) {
+            expect("broken", expected.getMessage());
+        }
+    }
+
+    private static void rejectsAnOversizedPart() {
+        try {
+            DesignTools.page("hello", Map.of("part", 3_000_000_000L));
+            throw new AssertionError("huge part was accepted");
+        } catch (IllegalArgumentException expected) {
+            expect("part is out of range", expected.getMessage());
+        }
     }
 
     private static String resourceText(McpProtocol.HttpReply reply) {

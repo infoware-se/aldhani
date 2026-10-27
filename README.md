@@ -4,7 +4,7 @@ An MCP server for an AI agent that creates, reads, updates, and deletes Domino d
 
 Aldhani is an MCP server for HCL Domino design. It runs as an OSGi servlet on the Domino HTTP task and answers MCP at `POST /mcp`. Every design call is a Kyber call on DRAPI. Kyber remains the API that changes design. Writes are off unless `allowWrite` is true.
 
-Version 0.1.7. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
+Version 0.1.8. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
 
 ## Purpose
 
@@ -56,7 +56,7 @@ DRAPI's data port can stay unpublished. Aldhani calls it from the same machine. 
 .\build.ps1
 ```
 
-The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.7.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
+The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.8.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
 
 `target\` is gitignored.
 
@@ -64,8 +64,8 @@ The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `t
 
 The HTTP task loads the feature only when it is listed in `platform.xml`. The applications site on Domino uses the `USER-EXCLUDE` policy, and Equinox reads the feature as a directory, so copying a jar into `plugins` is not enough. `install.ps1` does three things:
 
-- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.7.jar`
-- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.7\`
+- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.8.jar`
+- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.8\`
 - adds the feature under the applications site in `domino\workspace\.config\org.eclipse.update\platform.xml`
 
 Stop HTTP first. On shutdown the HTTP task rewrites `platform.xml` from memory, so an edit made while HTTP is running is lost. `tell http restart` does not reload this configuration.
@@ -98,7 +98,7 @@ Copy `aldhani.json.example` to `<Domino data>\aldhani.json`. `ALDHANI_CONFIG` ca
 | `publicBaseUrl` | Optional HTTPS origin used in OAuth metadata, with no trailing slash. When it is missing, Aldhani uses the request host. |
 | `oauthSubject` | Optional Domino name placed in the access token. When it is missing, `kyberUser` is used. Domino must be able to find that person. |
 
-`aldhani.json`, `aldhani-oauth.pem`, `.env`, and `.cursor/mcp.json` hold passwords, tokens, and the OAuth signing key. They are gitignored. A later save of `aldhani.json` is read on the next call. A save that does not parse leaves the last good configuration in place.
+`aldhani.json`, `aldhani-oauth.pem`, `.env`, and `.cursor/mcp.json` hold passwords, tokens, and the OAuth signing key. They are gitignored. A later save of `aldhani.json` is read on the next call. A save that does not parse leaves the last good configuration in place, including the caller token.
 
 ## Call the endpoint
 

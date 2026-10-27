@@ -85,6 +85,10 @@ final class DesignTools {
         return config.allowedNsf;
     }
 
+    AldhaniConfig config() {
+        return config;
+    }
+
     private final AldhaniConfig config;
     private final KyberGet kyber;
 
@@ -370,6 +374,9 @@ final class DesignTools {
         }
         if (!(value instanceof Number number) || number.longValue() < 0 || number.doubleValue() != number.longValue()) {
             throw new IllegalArgumentException("part must be a non-negative integer");
+        }
+        if (number.longValue() > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("part is out of range");
         }
         return (int) number.longValue();
     }

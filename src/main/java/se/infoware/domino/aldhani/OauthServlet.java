@@ -188,30 +188,30 @@ public class OauthServlet extends HttpServlet {
     }
 
     private String origin(HttpServletRequest request) {
-        String configured = null;
-        try {
-            configured = AldhaniConfig.load(AldhaniConfig.configFile()).publicBaseUrl;
-        } catch (Exception ignored) {
-            configured = null;
-        }
-        return PublicOrigin.of(request, configured);
+        AldhaniConfig config = liveConfig();
+        return PublicOrigin.of(request, config == null ? null : config.publicBaseUrl);
     }
 
     private static String subject() {
-        try {
-            AldhaniConfig config = AldhaniConfig.load(AldhaniConfig.configFile());
-            if (config.oauthSubject != null && !config.oauthSubject.isBlank()) {
-                return config.oauthSubject;
-            }
-            return config.kyberUser;
-        } catch (Exception ex) {
+        AldhaniConfig config = liveConfig();
+        if (config == null) {
             throw new IllegalArgumentException("Aldhani is not configured");
         }
+        if (config.oauthSubject != null && !config.oauthSubject.isBlank()) {
+            return config.oauthSubject;
+        }
+        return config.kyberUser;
     }
 
     private static String bearer() {
+        AldhaniConfig config = liveConfig();
+        return config == null ? null : config.bearerToken;
+    }
+
+    /** The file when it parses, otherwise the last good configuration. */
+    private static AldhaniConfig liveConfig() {
         try {
-            return AldhaniConfig.load(AldhaniConfig.configFile()).bearerToken;
+            return ActiveConfig.shared().open(AldhaniConfig.configFile());
         } catch (Exception ex) {
             return null;
         }
