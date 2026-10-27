@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/infoware-se/aldhani/security/advisories/new
+    about: Report a vulnerability privately. Do not open a public issue.
+  - name: Kyber (design API)
+    url: https://github.com/infoware-se/kyber/issues
+    about: Issues in the Kyber REST API belong in the Kyber repository.

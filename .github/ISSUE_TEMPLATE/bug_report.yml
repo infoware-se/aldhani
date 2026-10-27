@@ -1,0 +1,29 @@
+name: Bug report
+description: Something in Aldhani does not work as documented
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Expected vs actual behavior. No tokens or passwords.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Aldhani version
+      placeholder: "0.1.11"
+    validations:
+      required: true
+  - type: input
+    id: kyber
+    attributes:
+      label: Kyber version (if known)
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: MCP method/tool, nsfPath, and allowWrite setting when relevant.
+    validations:
+      required: true
