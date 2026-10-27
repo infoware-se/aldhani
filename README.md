@@ -1,5 +1,9 @@
 # Aldhani - Infoware MCP server for HCL Domino design
 
+[![CI](https://github.com/infoware-se/aldhani/actions/workflows/ci.yml/badge.svg)](https://github.com/infoware-se/aldhani/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/infoware-se/aldhani)](https://github.com/infoware-se/aldhani/releases/latest)
+[![License](https://img.shields.io/github/license/infoware-se/aldhani)](LICENSE)
+
 An MCP server for an AI agent that creates, reads, updates, and deletes Domino design through Kyber.
 
 Aldhani is an MCP server for HCL Domino design. It runs as an OSGi servlet on the Domino HTTP task and answers MCP at `POST /mcp`. Every design call is a Kyber call on DRAPI. Kyber remains the API that changes design. Writes are off unless `allowWrite` is true.

@@ -19,7 +19,7 @@ Comments, commit messages, and documentation are written in English.
 1. Keep the change focused.
 2. Run `.\build.ps1` locally when you can.
 3. Update the version in `build.ps1`, `feature.xml`, and `MANIFEST.MF` together when you ship a release.
-4. After merge, tag `vX.Y.Z`, write release notes, and attach `target\infoware-aldhani-X.Y.Z.jar`.
+4. After merge to `main`, push tag `vX.Y.Z`. The **Release** workflow builds with `javax.servlet-api`, creates the GitHub release, and attaches `infoware-aldhani-X.Y.Z.jar`. The tag version must match `build.ps1`.
 
 ## Related
 
