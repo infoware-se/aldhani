@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 final class McpProtocol {
-    static final String VERSION = "0.1.8";
+    static final String VERSION = "0.1.11";
     private static final String LATEST_PROTOCOL = "2025-11-25";
     private static final Set<String> PROTOCOL_VERSIONS = Set.of(
             "2024-11-05",
@@ -239,13 +239,58 @@ final class McpProtocol {
                 read));
         definitions.add(tool(
                 "export_design",
-                "Exports the whole NSF design as DXL. Large. Prefer list_design and get_design.",
+                "Exports the whole NSF design as DXL. Large. Prefer inventory_design, then get_design.",
                 Map.of(
                         "nsfPath", prop("string", "NSF path. Defaults to the only allowed database."),
                         "part", prop("integer", "Zero-based page of a large export. Each page is raw text, not a summary.")),
                 List.of(),
                 read));
+        definitions.add(tool(
+                "inventory_design",
+                "Lists every design element in an NSF without DXL. "
+                        + "Each row has type, name when present, noteId, and unid. "
+                        + "Prefer this before get_design. Use export_design only when the DXL bodies are needed.",
+                Map.of(
+                        "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
+                List.of(),
+                read));
+        definitions.add(tool(
+                "repo_path",
+                "Package Explorer path for one design file. "
+                        + "The folder is the Domino Designer folder, not the API name. "
+                        + "Omit type to list every folder. "
+                        + "Pass nsfPath and replicaId together for the NSF folder domino/<nsfPath>-<replicaId>. "
+                        + "noteId makes the file <name>-<noteId>.dxl. This tool does not call Kyber.",
+                Map.of(
+                        "type", prop("string", "Design type. Singular or plural. Omit to list the folders."),
+                        "name", prop("string", "Element name. A slash is a path for Java and XPages resources."),
+                        "noteId", prop("string", "Note id from list_design or get_design. Appended to the file name."),
+                        "nsfPath", prop("string", "NSF path. Set together with replicaId."),
+                        "replicaId", prop("string", "Replica id, 16 hex digits. Set together with nsfPath.")),
+                List.of(),
+                read));
+        definitions.add(tool(
+                "sync_repo",
+                "Writes every design element Kyber exports into repoRoot, using Package Explorer paths. "
+                        + "Includes the database icon as Resources/Images/$DBIcon-<noteId>.dxl. "
+                        + "Omit nsfPath to refresh every NSF in repoNsf. "
+                        + "A design write does this for the NSF it changed when that NSF is in repoNsf.",
+                Map.of(
+                        "nsfPath", prop("string", "NSF to refresh. Omit to refresh every NSF in repoNsf.")),
+                List.of(),
+                hints(false, false, true)));
         if (tools.writesEnabled()) {
+            definitions.add(tool(
+                    "create_database",
+                    "Creates one missing NSF that is already on allowedNsf. "
+                            + "Kyber sets the category KyberEnabled and gives the caller Manager. "
+                            + "dbTitle sets the database title. An existing file is left unchanged. "
+                            + "Database delete is not a tool.",
+                    Map.of(
+                            "nsfPath", prop("string", "NSF path. Must be allowlisted. Defaults to the only allowed database."),
+                            "dbTitle", prop("string", "Database title. Omit to use Kyber's default for that path.")),
+                    List.of(),
+                    hints(false, false, false)));
             definitions.add(tool(
                     "create_design",
                     "Creates one design element. Omit dxl to copy Kyber's starter. "
@@ -321,6 +366,8 @@ final class McpProtocol {
     private static Map<String, Object> outputSchema(String name) {
         return switch (name) {
             case "list_databases" -> listDatabasesSchema();
+            case "repo_path", "sync_repo", "inventory_design", "create_database" ->
+                    Map.of("type", "object", "additionalProperties", true);
             case "list_design", "get_design" -> designObjectSchema();
             case "create_design", "update_design", "delete_design", "validate_design" ->
                     Map.of("type", "object", "additionalProperties", true);
@@ -373,14 +420,17 @@ final class McpProtocol {
 
     private String instructions() {
         String text = "Aldhani is the MCP server for Domino design. Every design call goes to Kyber. "
-                + "Read with list_design, then get_design for one element. "
+                + "Read with inventory_design or list_design, then get_design for one element. "
                 + "A result with truncated left out DXL because the body was large. "
                 + "Call get_design or export_design with part to read that body in pages. "
+                + "repo_path is where that DXL file belongs in a repository. "
+                + "When repoRoot is set, a design write refreshes that NSF in the repository, and sync_repo refreshes every NSF in repoNsf. "
                 + "Database delete, a full design import, and an ACL replacement are not tools. "
                 + "Prompts review_design and explain_design say how to read one element. "
                 + "Send the caller token as Authorization: Aldhani. ";
         if (tools.writesEnabled()) {
-            return text + "create_design, update_design, and delete_design change one element. "
+            return text + "create_database creates a missing allowlisted NSF. "
+                    + "create_design, update_design, and delete_design change one element. "
                     + "validate_design writes nothing. acl cannot be replaced or deleted.";
         }
         return text + "Writes are off.";

@@ -1,5 +1,7 @@
 package se.infoware.domino.aldhani;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +23,10 @@ public final class AldhaniSelfTest {
         rejectsAnOversizedPart();
         cancelsARunningCall();
         issuesAnOauthBearer();
+        placesDesignInPackageExplorer();
+        syncsExportedDesign();
+        inventoriesDesignWithoutDxl();
+        createsAnAllowlistedDatabase();
         System.out.println("aldhani self-test ok");
     }
 
@@ -145,7 +151,7 @@ public final class AldhaniSelfTest {
         RecordingKyber kyber = new RecordingKyber();
         DesignTools tools = new DesignTools(sample(), kyber);
         expect(false, tools.writesEnabled());
-        expect(4, tools.names().size());
+        expect(7, tools.names().size());
         DesignTools.ToolResult refused = tools.call("create_design", Map.of("type", "form", "name", "Main"));
         expect(true, refused.error());
         expect(0, kyber.calls.size());
@@ -153,7 +159,7 @@ public final class AldhaniSelfTest {
         McpProtocol.HttpReply listed = protocol.handle("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list"}""");
         List<?> definitions = (List<?>) Json.object(Json.object(Json.parse(listed.body())).get("result")).get("tools");
-        expect(4, definitions.size());
+        expect(7, definitions.size());
         expect(Boolean.TRUE, Json.object(Json.object(definitions.get(1)).get("annotations")).get("readOnlyHint"));
         McpProtocol.HttpReply call = protocol.handle("""
                 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_design","arguments":{"type":"form","name":"Main"}}}""");
@@ -166,7 +172,7 @@ public final class AldhaniSelfTest {
         kyber.reply = "{\"ok\":true}";
         DesignTools tools = new DesignTools(writable(), kyber);
         expect(true, tools.writesEnabled());
-        expect(8, tools.names().size());
+        expect(12, tools.names().size());
 
         expect(false, tools.call("create_design", Map.of("type", "form", "name", "Main")).error());
         expect("POST /api/kyber-v1/forms?nsfPath=aldhanitest.nsf&name=Main", kyber.calls.get(kyber.calls.size() - 1));
@@ -206,11 +212,11 @@ public final class AldhaniSelfTest {
         McpProtocol.HttpReply listed = protocol.handle("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list"}""");
         List<?> definitions = (List<?>) Json.object(Json.object(Json.parse(listed.body())).get("result")).get("tools");
-        expect(8, definitions.size());
-        Map<String, Object> delete = Json.object(definitions.get(6));
+        expect(12, definitions.size());
+        Map<String, Object> delete = Json.object(definitions.get(10));
         expect("delete_design", delete.get("name"));
         expect(Boolean.TRUE, Json.object(delete.get("annotations")).get("destructiveHint"));
-        expect(Boolean.TRUE, Json.object(Json.object(definitions.get(7)).get("annotations")).get("readOnlyHint"));
+        expect(Boolean.TRUE, Json.object(Json.object(definitions.get(11)).get("annotations")).get("readOnlyHint"));
     }
 
     private static void speaksMcp() {
@@ -518,6 +524,169 @@ public final class AldhaniSelfTest {
                 "aldhani", "cursor://anysphere.cursor-mcp/oauth/callback", challenge, "S256", "s",
                 "CN=Reader/O=Org", "token", "token");
         expect(true, cursor.startsWith("cursor://"));
+    }
+
+    private static void placesDesignInPackageExplorer() {
+        DesignTools tools = new DesignTools(sample(), path -> {
+            throw new AssertionError(path);
+        });
+        DesignTools.ToolResult catalog = tools.call("repo_path", Map.of());
+        expect(false, catalog.error());
+        Map<String, Object> folders = Json.object(Json.object(Json.parse(catalog.text())).get("folders"));
+        expect("Forms", folders.get("form"));
+        expect("SharedElements/Outlines", folders.get("outline"));
+        expect("SharedElements/Navigators", folders.get("navigator"));
+        expect("Framesets", folders.get("frameset"));
+
+        DesignTools.ToolResult note = tools.call("repo_path", Map.of(
+                "type", "forms",
+                "name", "Note",
+                "noteId", "13a",
+                "nsfPath", "vibecoding.nsf",
+                "replicaId", "C1258E9D005DFB72"));
+        expect(false, note.error());
+        Map<String, Object> placed = Json.object(Json.parse(note.text()));
+        expect("form", placed.get("type"));
+        expect("Forms", placed.get("dir"));
+        expect("Note-13a.dxl", placed.get("file"));
+        expect("domino/vibecoding.nsf-C1258E9D005DFB72/Forms/Note-13a.dxl", placed.get("path"));
+
+        DesignTools.ToolResult javaSource = tools.call("repo_path", Map.of(
+                "type", "javasource",
+                "name", "com/example/Foo.java",
+                "noteId", "1a"));
+        expect("Code/Java/com/example/Foo.java-1a.dxl", Json.object(Json.parse(javaSource.text())).get("path"));
+
+        DesignTools.ToolResult web = tools.call("repo_path", Map.of(
+                "type", "xpagesresources",
+                "name", "WEB-INF/faces-config.xml"));
+        expect("WebContent/WEB-INF/faces-config.xml.dxl", Json.object(Json.parse(web.text())).get("path"));
+
+        DesignTools.ToolResult script = tools.call("repo_path", Map.of("type", "databasescript", "noteId", "ab"));
+        expect("Code/dbscript.lsdb-ab.dxl", Json.object(Json.parse(script.text())).get("path"));
+
+        expect(true, tools.call("repo_path", Map.of("type", "widget")).error());
+        expect(true, tools.call("repo_path", Map.of("type", "form", "nsfPath", "apps/demo.nsf")).error());
+        expect(true, tools.call("repo_path", Map.of("type", "form", "nsfPath", "../other.nsf", "replicaId", "C1258E9D005DFB72")).error());
+    }
+
+    private static void inventoriesDesignWithoutDxl() {
+        DesignTools tools = new DesignTools(sample(), path -> {
+            expect(true, path.contains("/export"));
+            return """
+                    {"nsfPath":"aldhanitest.nsf","elements":[
+                      {"type":"image","name":"$DBIcon","noteId":"136","unid":"AAA","dxl":"<note/>"},
+                      {"type":"form","name":"Note","noteId":"13a","dxl":"<form/>"}
+                    ]}""";
+        });
+        DesignTools.ToolResult result = tools.call("inventory_design", Map.of());
+        expect(false, result.error());
+        Map<String, Object> json = Json.object(Json.parse(result.text()));
+        expect("aldhanitest.nsf", json.get("nsfPath"));
+        expect(2, ((Number) json.get("elementCount")).intValue());
+        List<?> elements = (List<?>) json.get("elements");
+        expect(2, elements.size());
+        Map<String, Object> icon = Json.object(elements.get(0));
+        expect("image", icon.get("type"));
+        expect("$DBIcon", icon.get("name"));
+        expect("136", icon.get("noteId"));
+        expect("AAA", icon.get("unid"));
+        expect(false, icon.containsKey("dxl"));
+        expect(false, result.text().contains("<form"));
+    }
+
+    private static void createsAnAllowlistedDatabase() {
+        RecordingKyber kyber = new RecordingKyber();
+        kyber.reply = "{\"success\":true,\"created\":true,\"nsfPath\":\"aldhanitest.nsf\",\"dbTitle\":\"Smoke\"}";
+        DesignTools tools = new DesignTools(writable(), kyber);
+        DesignTools.ToolResult created = tools.call("create_database", Map.of("dbTitle", "Smoke"));
+        expect(false, created.error());
+        expect("POST /api/kyber-v1/database?nsfPath=aldhanitest.nsf&dbTitle=Smoke",
+                kyber.calls.get(kyber.calls.size() - 1));
+        expect(null, kyber.body);
+        expect(true, tools.call("create_database", Map.of("nsfPath", "other.nsf")).error());
+        expect(true, new DesignTools(sample(), kyber).call("create_database", Map.of()).error());
+    }
+
+    private static void syncsExportedDesign() throws Exception {
+        DesignTools plain = new DesignTools(sample(), path -> {
+            throw new AssertionError(path);
+        });
+        expect(true, plain.call("sync_repo", Map.of()).error());
+
+        Path temp = Files.createTempDirectory("aldhani-repo");
+        try {
+            String raw = """
+                    {
+                      "kyberBaseUrl": "https://domino.example",
+                      "kyberUser": "reader",
+                      "kyberPassword": "secret",
+                      "bearerToken": "token",
+                      "allowedNsf": ["aldhanitest.nsf", "workshop.nsf"],
+                      "allowWrite": true,
+                      "repoRoot": "%s",
+                      "repoNsf": ["aldhanitest.nsf"]
+                    }
+                    """.formatted(temp.toString().replace("\\", "\\\\"));
+            AldhaniConfig config = AldhaniConfig.parse(raw);
+            ExportKyber kyber = new ExportKyber();
+            kyber.export = exportOf("Note", "13a", "form", "<form name='Note' replicaid='C1258E990043A21E'/>");
+            DesignTools tools = new DesignTools(config, kyber);
+            DesignTools.ToolResult created = tools.call("create_design", Map.of(
+                    "type", "form", "name", "Probe", "nsfPath", "aldhanitest.nsf", "dxl", "<form/>"));
+            expect(false, created.error());
+            Map<String, Object> sync = Json.object(Json.object(Json.parse(created.text())).get("repoSync"));
+            expect(2, ((Number) sync.get("written")).intValue());
+            Path tree = temp.resolve("domino").resolve("aldhanitest.nsf-C1258E990043A21E");
+            expect(true, Files.exists(tree.resolve("Forms").resolve("Note-13a.dxl")));
+            expect(true, Files.exists(tree.resolve("Resources").resolve("Images").resolve("$DBIcon-136.dxl")));
+
+            kyber.export = exportOf(null, null, null, null);
+            DesignTools.ToolResult again = tools.call("sync_repo", Map.of("nsfPath", "aldhanitest.nsf"));
+            expect(false, again.error());
+            expect(false, Files.exists(tree.resolve("Forms").resolve("Note-13a.dxl")));
+            expect(true, Files.exists(tree.resolve("Resources").resolve("Images").resolve("$DBIcon-136.dxl")));
+            expect(true, tools.call("sync_repo", Map.of("nsfPath", "workshop.nsf")).error());
+        } finally {
+            deleteTemp(temp);
+        }
+    }
+
+    private static String exportOf(String formName, String formNote, String ignoredType, String ignoredDxl) {
+        String form = formName == null ? "" : """
+                ,{"type":"form","name":"%s","noteId":"%s","dxl":"<form name='%s' replicaid='C1258E990043A21E'/>"}
+                """.formatted(formName, formNote, formName);
+        return """
+                {"nsfPath":"aldhanitest.nsf","elements":[
+                  {"type":"image","name":"$DBIcon","noteId":"136","dxl":"<note name='$DBIcon' replicaid='C1258E990043A21E'/>"}%s
+                ]}
+                """.formatted(form);
+    }
+
+    private static void deleteTemp(Path root) throws Exception {
+        if (!Files.exists(root)) {
+            return;
+        }
+        try (var walk = Files.walk(root)) {
+            for (Path path : walk.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
+    }
+
+    private static final class ExportKyber implements KyberExchange {
+        String export = "{}";
+
+        public String get(String pathAndQuery) {
+            if (!pathAndQuery.contains("/export")) {
+                throw new AssertionError(pathAndQuery);
+            }
+            return export;
+        }
+
+        public String exchange(String method, String pathAndQuery, String body, String contentType) {
+            return "{\"ok\":true,\"name\":\"Probe\"}";
+        }
     }
 
     private static AldhaniConfig sample() {

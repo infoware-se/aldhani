@@ -102,10 +102,12 @@ public final class AldhaniSmoke {
             toolNames.add(Json.string(Json.object(item).get("name")));
         }
         List<String> expected = new ArrayList<>(List.of(
-                "list_databases", "list_design", "get_design", "export_design"));
+                "list_databases", "list_design", "get_design", "export_design", "inventory_design",
+                "repo_path", "sync_repo"));
         boolean writes = toolNames.contains("create_design");
         if (writes) {
-            expected.addAll(List.of("create_design", "update_design", "delete_design", "validate_design"));
+            expected.addAll(List.of(
+                    "create_database", "create_design", "update_design", "delete_design", "validate_design"));
         }
         expect(expected, toolNames);
         if (!Json.object(toolDefs.get(0)).containsKey("outputSchema")) {
@@ -115,6 +117,12 @@ public final class AldhaniSmoke {
             throw new AssertionError("export_design should stay free of an output schema");
         }
         assertToolHints(toolDefs, writes);
+        Map<String, Object> layout = Json.object(Json.parse(tool(http, url, config.bearerToken, "repo_path", Map.of(
+                "type", "form",
+                "name", "SmokeForm",
+                "noteId", "1"))));
+        expect("package-explorer", layout.get("layout"));
+        expect("Forms/SmokeForm-1.dxl", layout.get("path"));
 
         String databases = tool(http, url, config.bearerToken, "list_databases", Map.of());
         Map<String, Object> listedDatabases = Json.object(Json.parse(databases));
@@ -206,14 +214,16 @@ public final class AldhaniSmoke {
             Map<String, Object> tool = Json.object(item);
             String name = Json.string(tool.get("name"));
             Map<String, Object> annotations = Json.object(tool.get("annotations"));
-            boolean read = !"create_design".equals(name) && !"update_design".equals(name) && !"delete_design".equals(name);
+            boolean read = !"create_design".equals(name) && !"update_design".equals(name)
+                    && !"delete_design".equals(name) && !"sync_repo".equals(name)
+                    && !"create_database".equals(name);
             expect(read, annotations.get("readOnlyHint"));
             expect("delete_design".equals(name), annotations.get("destructiveHint"));
         }
         if (!writes) {
             return;
         }
-        expect(true, toolDefs.size() == 8);
+        expect(true, toolDefs.size() == 12);
     }
 
     private static void assertListLimit(HttpClient http, String url, String token) {

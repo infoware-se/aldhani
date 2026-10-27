@@ -1,11 +1,15 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$version = "0.1.8"
-$servlet = "C:\Domino\osgi\rcp\eclipse\plugins\com.ibm.pvc.servlet_2.5.0.20260601-1307.jar"
+$version = "0.1.11"
+$servlet = $env:ALDHANI_SERVLET_JAR
+if (-not $servlet) {
+    $servlet = "C:\Domino\osgi\rcp\eclipse\plugins\com.ibm.pvc.servlet_2.5.0.20260601-1307.jar"
+}
 $javac = "C:\Domino\jvm\bin\javac.exe"
 $jar = "C:\Domino\jvm\bin\jar.exe"
-if (-not (Test-Path $javac)) { $javac = "javac"; $jar = "jar" }
-if (-not (Test-Path $servlet)) { throw "Domino servlet API was not found at $servlet" }
+$java = "C:\Domino\jvm\bin\java.exe"
+if (-not (Test-Path $javac)) { $javac = "javac"; $jar = "jar"; $java = "java" }
+if (-not (Test-Path $servlet)) { throw "Servlet API was not found at $servlet (set ALDHANI_SERVLET_JAR for CI)" }
 
 $classes = Join-Path $root "target\classes"
 $testClasses = Join-Path $root "target\test-classes"
@@ -28,6 +32,6 @@ $bundle = Join-Path $root "target\infoware-aldhani-$version.jar"
 if ($LASTEXITCODE -ne 0) { throw "bundle jar failed" }
 
 $runCp = "$testClasses;$classes"
-& "C:\Domino\jvm\bin\java.exe" -cp $runCp se.infoware.domino.aldhani.AldhaniSelfTest
+& $java -cp $runCp se.infoware.domino.aldhani.AldhaniSelfTest
 if ($LASTEXITCODE -ne 0) { throw "self-test failed" }
 Write-Host "built $bundle"

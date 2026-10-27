@@ -7,5 +7,7 @@
   "allowedNsf": ["aldhanitest.nsf"],
   "insecureTls": true,
   "allowWrite": false,
+  "repoRoot": "",
+  "repoNsf": [],
   "publicBaseUrl": "https://dantooine.oninfoware.local"
 }

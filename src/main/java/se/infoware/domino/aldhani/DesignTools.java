@@ -32,10 +32,12 @@ final class DesignTools {
     private static final Set<String> DELETABLE_NOTES = CREATABLE_NOTES;
     private static final Set<String> KINDED = Set.of("agents", "scriptlibraries", "javasources");
     private static final Set<String> READ_NAMES = Set.of(
-            "list_databases", "list_design", "get_design", "export_design");
+            "list_databases", "list_design", "get_design", "export_design", "inventory_design",
+            "repo_path", "sync_repo");
     private static final Set<String> WRITE_NAMES = Set.of(
-            "list_databases", "list_design", "get_design", "export_design",
-            "create_design", "update_design", "delete_design", "validate_design");
+            "list_databases", "list_design", "get_design", "export_design", "inventory_design",
+            "repo_path", "sync_repo",
+            "create_database", "create_design", "update_design", "delete_design", "validate_design");
     private static final String XML = "text/xml; charset=utf-8";
     private static final String JSON = "application/json; charset=utf-8";
 
@@ -104,6 +106,10 @@ final class DesignTools {
                 case "list_design" -> listDesign(arguments);
                 case "get_design" -> getDesign(arguments);
                 case "export_design" -> exportDesign(arguments);
+                case "inventory_design" -> inventoryDesign(arguments);
+                case "repo_path" -> RepoLayout.describe(arguments);
+                case "sync_repo" -> syncRepo(arguments);
+                case "create_database" -> createDatabase(arguments);
                 case "create_design" -> createDesign(arguments);
                 case "update_design" -> updateDesign(arguments);
                 case "delete_design" -> deleteDesign(arguments);
@@ -197,11 +203,11 @@ final class DesignTools {
                 throw new IllegalArgumentException(kind.path + " has no element name");
             }
             rejectKind(arguments);
-            return writer.exchange(
+            return finish(nsf, writer.exchange(
                     "POST",
                     "/api/kyber-v1/" + kind.path + "?" + KyberClient.query("nsfPath", nsf),
                     dxl == null ? "" : dxl,
-                    XML);
+                    XML));
         }
         String name = required(arguments, "name");
         String query = KyberClient.query("nsfPath", nsf) + "&" + KyberClient.query("name", name);
@@ -212,11 +218,11 @@ final class DesignTools {
         } else if (present(arguments, "kind")) {
             throw new IllegalArgumentException(kind.path + " has no kind");
         }
-        return writer.exchange(
+        return finish(nsf, writer.exchange(
                 "POST",
                 "/api/kyber-v1/" + kind.path + "?" + query,
                 dxl == null ? "" : dxl,
-                XML);
+                XML));
     }
 
     private String updateDesign(Map<String, Object> arguments) {
@@ -232,19 +238,19 @@ final class DesignTools {
             if (present(arguments, "name")) {
                 throw new IllegalArgumentException(kind.path + " has no element name");
             }
-            return writer.exchange(
+            return finish(nsf, writer.exchange(
                     "PUT",
                     "/api/kyber-v1/" + kind.path + "?" + KyberClient.query("nsfPath", nsf),
                     dxl,
-                    XML);
+                    XML));
         }
         String name = required(arguments, "name");
-        return writer.exchange(
+        return finish(nsf, writer.exchange(
                 "PUT",
                 "/api/kyber-v1/" + kind.path + "/" + KyberClient.pathSegment(name)
                         + "?" + KyberClient.query("nsfPath", nsf),
                 dxl,
-                XML);
+                XML));
     }
 
     private String deleteDesign(Map<String, Object> arguments) {
@@ -262,19 +268,74 @@ final class DesignTools {
             if (present(arguments, "name")) {
                 throw new IllegalArgumentException(kind.path + " has no element name");
             }
-            return writer.exchange(
+            return finish(nsf, writer.exchange(
                     "DELETE",
                     "/api/kyber-v1/" + kind.path + "?" + KyberClient.query("nsfPath", nsf),
                     null,
-                    null);
+                    null));
         }
         String name = required(arguments, "name");
-        return writer.exchange(
+        return finish(nsf, writer.exchange(
                 "DELETE",
                 "/api/kyber-v1/" + kind.path + "/" + KyberClient.pathSegment(name)
                         + "?" + KyberClient.query("nsfPath", nsf),
                 null,
-                null);
+                null));
+    }
+
+    private String finish(String nsf, String body) {
+        if (!config.syncs(nsf)) {
+            return body;
+        }
+        Map<String, Object> sync;
+        try {
+            sync = RepoSync.write(config, kyber, nsf);
+        } catch (RuntimeException ex) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw ex;
+            }
+            sync = new LinkedHashMap<>();
+            sync.put("nsfPath", nsf);
+            sync.put("error", ex.getMessage() == null ? "repo sync failed" : ex.getMessage());
+        }
+        try {
+            Object parsed = Json.parse(body);
+            if (parsed instanceof Map<?, ?> map) {
+                Map<String, Object> copy = new LinkedHashMap<>(Json.object(map));
+                copy.put("repoSync", sync);
+                return Json.write(copy);
+            }
+        } catch (IllegalArgumentException ignored) {
+            // Kyber's body stays as it was when it is not a JSON object.
+        }
+        return body;
+    }
+
+    private String syncRepo(Map<String, Object> arguments) {
+        if (config.repoRoot == null) {
+            throw new IllegalArgumentException("repoRoot is not set");
+        }
+        String given = Json.string(arguments.get("nsfPath"));
+        List<String> targets = new ArrayList<>();
+        if (given == null || given.isBlank()) {
+            targets.addAll(config.syncTargets());
+        } else {
+            String nsf = nsf(arguments);
+            if (!config.syncs(nsf)) {
+                throw new IllegalArgumentException("NSF is not in repoNsf: " + nsf);
+            }
+            targets.add(nsf);
+        }
+        if (targets.isEmpty()) {
+            throw new IllegalArgumentException("repoNsf is empty");
+        }
+        List<Object> databases = new ArrayList<>();
+        for (String target : targets) {
+            databases.add(RepoSync.write(config, kyber, target));
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("databases", databases);
+        return Json.write(result);
     }
 
     private String validateDesign(Map<String, Object> arguments) {
@@ -344,6 +405,72 @@ final class DesignTools {
     private String exportDesign(Map<String, Object> arguments) {
         String nsf = nsf(arguments);
         return page(kyber.get("/api/kyber-v1/export?" + KyberClient.query("nsfPath", nsf)), arguments);
+    }
+
+    private String inventoryDesign(Map<String, Object> arguments) {
+        String nsf = nsf(arguments);
+        String body = kyber.get("/api/kyber-v1/export?" + KyberClient.query("nsfPath", nsf));
+        Map<String, Object> document = Json.object(Json.parse(body));
+        Object raw = document.get("elements");
+        if (!(raw instanceof List<?> elements)) {
+            throw new IllegalArgumentException("Kyber export has no elements");
+        }
+        List<Object> inventory = new ArrayList<>();
+        for (Object item : elements) {
+            Map<String, Object> element = Json.object(item);
+            Map<String, Object> entry = new LinkedHashMap<>();
+            String type = Json.string(element.get("type"));
+            if (type != null && !type.isBlank()) {
+                entry.put("type", type);
+            }
+            String name = Json.string(element.get("name"));
+            if (name != null && !name.isBlank()) {
+                entry.put("name", name);
+            }
+            String noteId = Json.string(element.get("noteId"));
+            if (noteId == null) {
+                noteId = Json.string(element.get("noteid"));
+            }
+            if (noteId != null && !noteId.isBlank()) {
+                entry.put("noteId", noteId);
+            }
+            String unid = Json.string(element.get("unid"));
+            if (unid != null && !unid.isBlank()) {
+                entry.put("unid", unid);
+            }
+            inventory.add(entry);
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("nsfPath", nsf);
+        Object replicaId = document.get("replicaId");
+        if (replicaId == null) {
+            replicaId = document.get("replicaid");
+        }
+        if (replicaId != null) {
+            result.put("replicaId", replicaId);
+        }
+        result.put("elementCount", inventory.size());
+        result.put("elements", inventory);
+        Object skipped = document.get("skipped");
+        if (skipped instanceof List<?> list && !list.isEmpty()) {
+            result.put("skipped", list.size());
+        }
+        return Json.write(result);
+    }
+
+    private String createDatabase(Map<String, Object> arguments) {
+        KyberExchange writer = writer();
+        String nsf = nsf(arguments);
+        String query = KyberClient.query("nsfPath", nsf);
+        String title = Json.string(arguments.get("dbTitle"));
+        if (title != null && !title.isBlank()) {
+            query += "&" + KyberClient.query("dbTitle", title.trim());
+        }
+        return finish(nsf, writer.exchange(
+                "POST",
+                "/api/kyber-v1/database?" + query,
+                null,
+                null));
     }
 
     /** A requested part is one slice of the raw Kyber body. Omit part and a large body is summarized instead. */

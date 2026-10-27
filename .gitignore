@@ -1,4 +1,5 @@
 target/
+deps/
 aldhani.json
 aldhani-oauth.pem
 .env
