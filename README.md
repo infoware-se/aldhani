@@ -53,6 +53,8 @@ A tool result is text. A body over 100 000 characters is returned as JSON with `
 
 ## Improvements
 
+Kyber is the design API. Design capabilities that agents need (search, copy, rename, get by UNID, templates, binary resources, recompile, and the rest) are tracked in [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements). This section is Aldhani's own backlog: MCP, allowlist, writes policy, repo sync, and smoke. Aldhani only wraps what Kyber exposes.
+
 Bearer login. Aldhani already issues an RS256 access token, and `POST /mcp` accepts `Authorization: Bearer` when the token is one it signed. Domino's HTTP task swallows that header and returns the login page until the internet site trusts Aldhani as an OIDC provider and has Bearer authentication enabled. The discovery document Domino reads is `GET /oauth/.well-known/openid-configuration`, and the key is `GET /oauth/jwks`. Until that trust is in place, clients keep using `Authorization: Aldhani`.
 
 Smoke on a server with more than one allowlisted NSF. The live check expects `allowedNsf` to be exactly `aldhanitest.nsf`, so a server that also allowlists application databases fails before it exercises the tools.
@@ -73,7 +75,7 @@ Repo sync polish. `sync_repo` replaces a whole NSF tree; a per-element refresh a
 
 MCP and agent UX. Prompts `review_design`, `explain_design`, and `create_element` exist but many hosts barely surface prompts; tool descriptions could embed the same workflows. `outputSchema` is only rich on `list_databases`; other tools could declare schemas. Resources are bare `aldhani://<nsf>` JSON; a resource that lists collection types, or inventory without a tool call, would cut round trips. Completions cover design `type`; completing `nsfPath` from `allowedNsf` and element `name` from the last list would reduce typos. Progress notifications on long `export_design` / `sync_repo` calls. Logging already exists; a `debug` dump of the Kyber path and status (never tokens) would speed support. Session-scoped default `nsfPath` after the agent picks a database.
 
-Kyber dependencies. Some of the tools above need new Kyber routes first: named template pick, get-by-unid, designnote CRUD, binary resource payloads, recompile, set category on an existing NSF, design inherit from NTF, and richer validate/importer diagnostics. Aldhani only wraps what Kyber exposes. Until then, document the workaround (`inventory_design` + `get_design` loops) in the tool instructions.
+Kyber dependencies. The design tools listed above that need new Kyber routes wait on Kyber's Improvements. Until those routes exist, document the workaround (`inventory_design` + `get_design` loops) in the tool instructions.
 
 Keep out of tools. Database delete, full design import or replace, and ACL replace or delete stay unavailable on purpose. Application documents, DQL, running agents, server console, compact, quota, and user administration stay outside this design MCP; another product can cover those.
 
