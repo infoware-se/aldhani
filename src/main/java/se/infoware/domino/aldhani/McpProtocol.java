@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 final class McpProtocol {
-    static final String VERSION = "0.1.14";
+    static final String VERSION = "0.1.15";
     private static final String LATEST_PROTOCOL = "2025-11-25";
     private static final Set<String> PROTOCOL_VERSIONS = Set.of(
             "2024-11-05",
@@ -210,7 +210,8 @@ final class McpProtocol {
         definitions.add(tool(
                 "list_databases",
                 "Lists the Kyber-enabled databases Aldhani is allowed to see. "
-                        + "aldhanitest.nsf is the sandbox. Other databases are omitted.",
+                        + "aldhanitest.nsf is the sandbox. Other allowlisted databases may appear. "
+                        + "more is true when Kyber had more files than the allowlist filter kept.",
                 Map.of(
                         "fileType", prop("string",
                                 "database (default), template, replica_candidate, or template_candidate")),
@@ -231,7 +232,9 @@ final class McpProtocol {
                 "get_design",
                 "Returns one design element or one database note, including its DXL. "
                         + "Pass type and name (or type alone for a database note), "
-                        + "or look up by unid or noteId without type.",
+                        + "or look up by unid or noteId without type. "
+                        + "For acl, Kyber also returns structured entries and roles beside dxl. "
+                        + "Names with parentheses use Kyber's /named route automatically.",
                 Map.of(
                         "type", prop("string", typeDescription()),
                         "name", prop("string", "Element name. Omit for a database note."),
@@ -530,7 +533,8 @@ final class McpProtocol {
         schema.put("properties", Map.of(
                 "allowedNsf", Map.of("type", "array", "items", Map.of("type", "string")),
                 "databases", Map.of("type", "array", "items", Map.of("type", "object")),
-                "missing", Map.of("type", "array", "items", Map.of("type", "string"))));
+                "missing", Map.of("type", "array", "items", Map.of("type", "string")),
+                "more", Map.of("type", "boolean")));
         return schema;
     }
 

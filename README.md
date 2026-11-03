@@ -8,7 +8,7 @@ An MCP server for an AI agent that creates, reads, updates, and deletes Domino d
 
 Aldhani is an MCP server for HCL Domino design. It runs as an OSGi servlet on the Domino HTTP task and answers MCP at `POST /mcp`. Every design call is a Kyber call on DRAPI. Kyber remains the API that changes design. Writes are off unless `allowWrite` is true.
 
-Version 0.1.14. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
+Version 0.1.15. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
 
 Design API: [Kyber](https://github.com/infoware-se/kyber). Releases: [jar attachments](https://github.com/infoware-se/aldhani/releases). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.md](SECURITY.md).
 
@@ -78,15 +78,13 @@ A call that omits `nsfPath` when several databases are allowlisted. `onlyNsf()` 
 
 A write probe that sends real DXL. The smoke run creates `AldhaniSmokeProbe` from `<form/>` and deletes it. That shows the route accepts a body. It does not show that a design note survives a round trip. Prefer a get-after-put assertion and a `validate_design` round trip on a known good form.
 
-Writes per database. `allowWrite` is one switch for every allowlisted NSF, so a smoke run with writes on creates and deletes `AldhaniSmokeProbe` in `aldhanitest.nsf`. A switch on the sandbox alone would leave the application databases unchanged. `repoNsf` already limits which trees are written to disk. Per-NSF `allowWrite` (or write grants) would match that model.
+Shipped against Kyber 0.26+. Helpers for search/lookup/copy/rename/patch, templates/binary/compile, database title/category/fromTemplate/inherit, typed `designnote` CRUD, `databases.more`, ACL `entries`/`roles` on `get_design` type `acl`, `/named` for parenthesis titles, and per-NSF `writeNsf` grants wrap the matching Kyber routes and Aldhani policy.
 
-Shipped against Kyber 0.26+. Helpers for search/lookup/copy/rename/patch, templates/binary/compile, database title/category/fromTemplate/inherit, and typed `designnote` CRUD wrap the matching Kyber routes.
+Missing design tools (high value). Need new Kyber routes first: `diff_design`, `list_fields` / `list_columns`, and `get_design_summary`. Aldhani will not parse DXL locally for those.
 
-Missing design tools (high value). `diff_design` (live DXL vs proposed or vs another note), `list_fields` and `list_columns` (form/view inventory without full DXL), and `get_design_summary` (aliases, forms used, agent schedule).
+Missing design tools (medium value). `list_agents_schedule`, `import_design_element` (one DXL create-or-replace, not a full NSF import).
 
-Missing design tools (medium value). `list_agents_schedule`, `import_design_element` (one DXL create-or-replace, not a full NSF import), and surfacing Kyber's `databases.more` so agents see that allowlist filtering hid other files.
-
-Missing design tools (lower value, still worth tracking). `repo_status` (live inventory and `unid` vs `manifest.json` / Package Explorer drift), expose Kyber export `skipped` notes, structured ACL **read** as JSON (roles and entries; replace stays blocked), design-note undo or version history, formula-only validate separate from DXL `validate_design`, list private vs shared design where Domino distinguishes them, compare inventories across two allowlisted NSFs, `/named` for titles with parentheses, and chunked or resumable write for DXL larger than the MCP truncation window (create/update today assume one body).
+Missing design tools (lower value, still worth tracking). `repo_status`, expose Kyber export `skipped` detail (count is already on inventory), design-note undo or version history, formula-only validate separate from DXL `validate_design`, list private vs shared design, compare inventories across two allowlisted NSFs, and chunked or resumable write for DXL larger than the MCP truncation window.
 
 Repo sync polish. `sync_repo` replaces a whole NSF tree; a per-element refresh after create/update already runs when `repoNsf` matches, but agents still hand-edit stale `-noteId` file names when a write races or `repoRoot` is unset. Optional `repoRoot` relative to the MCP client workspace, a tool that returns the last sync time and element counts, and refusing `sync_repo` when `repoRoot` is missing with an actionable message would help. Stale DXL left on disk after `delete_design` should be removed from the tree when sync runs.
 
@@ -111,7 +109,7 @@ DRAPI's data port can stay unpublished. Aldhani calls it from the same machine. 
 .\build.ps1
 ```
 
-The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.14.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
+The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.15.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
 
 `target\` is gitignored.
 
@@ -119,8 +117,8 @@ The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `t
 
 The HTTP task loads the feature only when it is listed in `platform.xml`. The applications site on Domino uses the `USER-EXCLUDE` policy, and Equinox reads the feature as a directory, so copying a jar into `plugins` is not enough. `install.ps1` does three things:
 
-- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.14.jar`
-- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.14\`
+- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.15.jar`
+- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.15\`
 - adds the feature under the applications site in `domino\workspace\.config\org.eclipse.update\platform.xml`
 
 Stop HTTP first. On shutdown the HTTP task rewrites `platform.xml` from memory, so an edit made while HTTP is running is lost. `tell http restart` does not reload this configuration.
@@ -150,6 +148,7 @@ Copy `aldhani.json.example` to `<Domino data>\aldhani.json`. `ALDHANI_CONFIG` ca
 | `allowedNsf` | NSF paths Kyber may be asked about. At least one. |
 | `insecureTls` | Trust DRAPI's certificate and skip hostname checks. Use this for a private certificate on the same server. |
 | `allowWrite` | When true, list the write tools (create/update/patch/copy/rename/delete/validate, plus create_database). Missing or false keeps an existing install read-only. |
+| `writeNsf` | Optional list of allowlisted NSFs that accept writes when `allowWrite` is true. Missing means every allowlisted NSF. Use this to keep app NSFs readable while only the sandbox is writable. |
 | `repoRoot` | Optional directory. A design write refreshes that NSF here, and `sync_repo` refreshes every NSF in `repoNsf`. |
 | `repoNsf` | Optional list of allowlisted NSFs to write under `repoRoot`. Missing means every allowlisted NSF. |
 | `publicBaseUrl` | Optional HTTPS origin used in OAuth metadata, with no trailing slash. When it is missing, Aldhani uses the request host. |

@@ -17,6 +17,7 @@ public final class AldhaniSelfTest {
         writesStayOffUntilAsked();
         writesThroughKyberWhenAllowed();
         wrapsKyberHelpers();
+        grantsWritesPerNsf();
         speaksMcp();
         speaksTheCurrentProtocol();
         readsANestedDatabaseResource();
@@ -64,7 +65,7 @@ public final class AldhaniSelfTest {
                     {"databases":[
                       {"nsfPath":"kybertest.nsf","dbTitle":"Kyber"},
                       {"nsfPath":"aldhanitest.nsf","dbTitle":"Aldhani"}
-                    ]}""";
+                    ],"more":true}""";
         });
         DesignTools.ToolResult result = tools.call("list_databases", Map.of());
         expect(false, result.error());
@@ -73,6 +74,7 @@ public final class AldhaniSelfTest {
         expect(1, databases.size());
         expect("aldhanitest.nsf", Json.string(Json.object(databases.get(0)).get("nsfPath")));
         expect(List.of(), json.get("missing"));
+        expect(Boolean.TRUE, json.get("more"));
     }
 
     private static void refusesDatabasesOutsideTheAllowlist() {
@@ -311,6 +313,34 @@ public final class AldhaniSelfTest {
                 "type", "designnote", "name", "Extra", "dxl", "<note/>")).error());
         expect("POST /api/kyber-v1/designnotes?nsfPath=aldhanitest.nsf&name=Extra",
                 kyber.calls.get(kyber.calls.size() - 1));
+
+        expect(false, tools.call("get_design", Map.of("type", "form", "name", "Main (copy)")).error());
+        expect("GET /api/kyber-v1/named/form?nsfPath=aldhanitest.nsf&name=Main%20%28copy%29",
+                kyber.calls.get(kyber.calls.size() - 1));
+        expect(false, tools.call("update_design", Map.of(
+                "type", "form", "name", "Main (copy)", "dxl", "<form/>")).error());
+        expect("PUT /api/kyber-v1/named/form?nsfPath=aldhanitest.nsf&name=Main%20%28copy%29",
+                kyber.calls.get(kyber.calls.size() - 1));
+    }
+
+    private static void grantsWritesPerNsf() {
+        RecordingKyber kyber = new RecordingKyber();
+        kyber.reply = "{\"ok\":true}";
+        DesignTools tools = new DesignTools(AldhaniConfig.parse("""
+                {
+                  "kyberBaseUrl": "https://domino.example",
+                  "kyberUser": "reader",
+                  "kyberPassword": "secret",
+                  "bearerToken": "token",
+                  "allowedNsf": ["aldhanitest.nsf", "app.nsf"],
+                  "allowWrite": true,
+                  "writeNsf": ["aldhanitest.nsf"]
+                }"""), kyber);
+        expect(false, tools.call("create_design", Map.of(
+                "type", "form", "name", "Main", "nsfPath", "aldhanitest.nsf")).error());
+        expect(true, tools.call("create_design", Map.of(
+                "type", "form", "name", "Main", "nsfPath", "app.nsf")).error());
+        expect(0L, kyber.calls.stream().filter(call -> call.contains("app.nsf")).count());
     }
 
     private static void speaksMcp() {

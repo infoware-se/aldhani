@@ -195,6 +195,10 @@ final class DesignTools {
         result.put("allowedNsf", config.allowedNsf);
         result.put("databases", present);
         result.put("missing", missing);
+        Object more = json.get("more");
+        if (Boolean.TRUE.equals(more)) {
+            result.put("more", true);
+        }
         return Json.write(result);
     }
 
@@ -214,7 +218,7 @@ final class DesignTools {
     private String createDesign(Map<String, Object> arguments) {
         KyberExchange writer = writer();
         DesignKind kind = resolve(required(arguments, "type"));
-        String nsf = nsf(arguments);
+        String nsf = writableNsf(arguments);
         String dxl = dxl(arguments, false);
         boolean hasTemplate = present(arguments, "template");
         if (hasTemplate && dxl != null && !dxl.isBlank()) {
@@ -259,7 +263,7 @@ final class DesignTools {
     private String updateDesign(Map<String, Object> arguments) {
         KyberExchange writer = writer();
         DesignKind kind = resolve(required(arguments, "type"));
-        String nsf = nsf(arguments);
+        String nsf = writableNsf(arguments);
         String dxl = dxl(arguments, true);
         rejectKind(arguments);
         if (kind.singleton) {
@@ -276,18 +280,13 @@ final class DesignTools {
                     XML));
         }
         String name = required(arguments, "name");
-        return finish(nsf, writer.exchange(
-                "PUT",
-                "/api/kyber-v1/" + kind.path + "/" + KyberClient.pathSegment(name)
-                        + "?" + KyberClient.query("nsfPath", nsf),
-                dxl,
-                XML));
+        return finish(nsf, writer.exchange("PUT", elementUrl(kind, name, nsf), dxl, XML));
     }
 
     private String deleteDesign(Map<String, Object> arguments) {
         KyberExchange writer = writer();
         DesignKind kind = resolve(required(arguments, "type"));
-        String nsf = nsf(arguments);
+        String nsf = writableNsf(arguments);
         rejectKind(arguments);
         if (present(arguments, "dxl")) {
             throw new IllegalArgumentException("delete_design does not take dxl");
@@ -306,12 +305,7 @@ final class DesignTools {
                     null));
         }
         String name = required(arguments, "name");
-        return finish(nsf, writer.exchange(
-                "DELETE",
-                "/api/kyber-v1/" + kind.path + "/" + KyberClient.pathSegment(name)
-                        + "?" + KyberClient.query("nsfPath", nsf),
-                null,
-                null));
+        return finish(nsf, writer.exchange("DELETE", elementUrl(kind, name, nsf), null, null));
     }
 
     private String finish(String nsf, String body) {
@@ -467,8 +461,7 @@ final class DesignTools {
             return page(kyber.get("/api/kyber-v1/" + kind.path + "?" + KyberClient.query("nsfPath", nsf(arguments))), arguments);
         }
         String name = required(arguments, "name");
-        return page(kyber.get("/api/kyber-v1/" + kind.path + "/" + KyberClient.pathSegment(name)
-                + "?" + KyberClient.query("nsfPath", nsf(arguments))), arguments);
+        return page(kyber.get(elementUrl(kind, name, nsf(arguments))), arguments);
     }
 
     private String searchDesign(Map<String, Object> arguments) {
@@ -555,7 +548,7 @@ final class DesignTools {
     private String updateContent(Map<String, Object> arguments) {
         KyberExchange writer = writer();
         String type = contentType(arguments);
-        String nsf = nsf(arguments);
+        String nsf = writableNsf(arguments);
         String contentBase64 = required(arguments, "contentBase64");
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("contentBase64", contentBase64);
@@ -579,7 +572,7 @@ final class DesignTools {
 
     private String recompileLotusScript(Map<String, Object> arguments) {
         KyberExchange writer = writer();
-        String nsf = nsf(arguments);
+        String nsf = writableNsf(arguments);
         return finish(nsf, writer.exchange(
                 "POST",
                 "/api/kyber-v1/compile?" + KyberClient.query("nsfPath", nsf),
@@ -603,6 +596,7 @@ final class DesignTools {
             dest = allowlisted(Json.string(arguments.get("toNsfPath")));
             query += "&" + KyberClient.query("toNsfPath", dest);
         }
+        requireWritable(dest);
         return finish(dest, writer.exchange("POST", "/api/kyber-v1/copy?" + query, null, null));
     }
 
@@ -612,7 +606,7 @@ final class DesignTools {
         if (kind.singleton) {
             throw new IllegalArgumentException(kind.path + " cannot be renamed");
         }
-        String nsf = nsf(arguments);
+        String nsf = writableNsf(arguments);
         String query = KyberClient.query("nsfPath", nsf)
                 + "&" + KyberClient.query("type", kyberType(kind.path))
                 + "&" + KyberClient.query("name", required(arguments, "name"))
@@ -646,7 +640,7 @@ final class DesignTools {
             }
             body.put("alias", alias);
         }
-        String nsf = nsf(arguments);
+        String nsf = writableNsf(arguments);
         String query = KyberClient.query("nsfPath", nsf)
                 + "&" + KyberClient.query("type", kyberType(kind.path))
                 + "&" + KyberClient.query("name", required(arguments, "name"));
@@ -715,7 +709,7 @@ final class DesignTools {
 
     private String createDatabase(Map<String, Object> arguments) {
         KyberExchange writer = writer();
-        String nsf = nsf(arguments);
+        String nsf = writableNsf(arguments);
         String query = KyberClient.query("nsfPath", nsf);
         String title = Json.string(arguments.get("dbTitle"));
         if (title != null && !title.isBlank()) {
@@ -730,7 +724,7 @@ final class DesignTools {
 
     private String createDatabaseFromTemplate(Map<String, Object> arguments) {
         KyberExchange writer = writer();
-        String nsf = nsf(arguments);
+        String nsf = writableNsf(arguments);
         String template = AldhaniConfig.normalizeNsf(required(arguments, "templateNsfPath"));
         String query = KyberClient.query("nsfPath", nsf)
                 + "&" + KyberClient.query("templateNsfPath", template);
@@ -750,7 +744,7 @@ final class DesignTools {
 
     private String setDbTitle(Map<String, Object> arguments) {
         KyberExchange writer = writer();
-        String nsf = nsf(arguments);
+        String nsf = writableNsf(arguments);
         String title = required(arguments, "dbTitle").trim();
         return finish(nsf, writer.exchange(
                 "PUT",
@@ -762,7 +756,7 @@ final class DesignTools {
 
     private String setKyberEnabled(Map<String, Object> arguments) {
         KyberExchange writer = writer();
-        String nsf = nsf(arguments);
+        String nsf = writableNsf(arguments);
         boolean enabled = enabledFlag(arguments);
         return writer.exchange(
                 "PUT",
@@ -774,7 +768,7 @@ final class DesignTools {
 
     private String inheritDesign(Map<String, Object> arguments) {
         KyberExchange writer = writer();
-        String nsf = nsf(arguments);
+        String nsf = writableNsf(arguments);
         String query = KyberClient.query("nsfPath", nsf);
         if (present(arguments, "templateServer")) {
             query += "&" + KyberClient.query("templateServer", Json.string(arguments.get("templateServer")));
@@ -871,12 +865,37 @@ final class DesignTools {
         return allowlisted(path);
     }
 
+    private String writableNsf(Map<String, Object> arguments) {
+        return requireWritable(nsf(arguments));
+    }
+
+    private String requireWritable(String nsf) {
+        if (!config.writes(nsf)) {
+            throw new IllegalArgumentException("NSF is not writable through Aldhani: " + nsf);
+        }
+        return nsf;
+    }
+
     private String allowlisted(String path) {
         String normalized = AldhaniConfig.normalizeNsf(path);
         if (!config.allows(normalized)) {
             throw new IllegalArgumentException("NSF is not in the Aldhani allowlist: " + normalized);
         }
         return normalized;
+    }
+
+    /** Path-unsafe titles (parentheses) use Kyber {@code /named/{type}?name=}. */
+    private static String elementUrl(DesignKind kind, String name, String nsf) {
+        String query = KyberClient.query("nsfPath", nsf);
+        if (needsNamedRoute(name)) {
+            return "/api/kyber-v1/named/" + KyberClient.pathSegment(kyberType(kind.path))
+                    + "?" + query + "&" + KyberClient.query("name", name);
+        }
+        return "/api/kyber-v1/" + kind.path + "/" + KyberClient.pathSegment(name) + "?" + query;
+    }
+
+    private static boolean needsNamedRoute(String name) {
+        return name.indexOf('(') >= 0 || name.indexOf(')') >= 0;
     }
 
     private static String typesCsv(Object raw) {
