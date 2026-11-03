@@ -39,7 +39,7 @@ jobs:
           $ver = $Matches[1]
           $jar = "target\infoware-aldhani-$ver.jar"
           if (-not (Test-Path $jar)) {
-            throw "Missing $jar. Bump the version in build.ps1, feature.xml, and MANIFEST.MF to $ver before tagging $tag."
+            throw "Missing $jar. Bump the version in build.ps1, feature.xml, MANIFEST.MF, and McpProtocol.VERSION to $ver before tagging $tag."
           }
           $notes = @"
           Aldhani $ver

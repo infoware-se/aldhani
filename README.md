@@ -60,7 +60,7 @@ Two checks happen on every call.
 1. The servlet accepts `Authorization: Aldhani`, `X-Aldhani-Token`, or an access token Aldhani itself signed. The first two are compared with `bearerToken`.
 2. The servlet logs in to Kyber with `kyberUser` and `kyberPassword`, then sends Kyber's bearer on the design request.
 
-The allowlist is applied before Kyber is called. A path that contains `..`, starts with `/`, or contains `:` is rejected. When `allowedNsf` has one entry, `nsfPath` may be omitted and that entry is used. `list_databases` asks Kyber for databases and then keeps only allowlist names. Names on the allowlist that Kyber did not return are listed under `missing`.
+The allowlist is applied before Kyber is called. A path that contains `..`, starts with `/`, or contains `:` is rejected. When `allowedNsf` has one entry, `nsfPath` may be omitted and that entry is used. When several are listed, omit `nsfPath` only after the MCP session has already used one: the servlet remembers that NSF for later calls on the same `MCP-Session-Id`. A missing `nsfPath` with no session default returns an error that names every allowlisted path. `list_databases` asks Kyber for databases and then keeps only allowlist names. Names on the allowlist that Kyber did not return are listed under `missing`.
 
 ## What this version leaves to Kyber
 
@@ -86,7 +86,7 @@ Missing design tools (lower value, still worth tracking). `repo_status`, expose 
 
 Repo sync polish. `sync_repo` replaces a whole NSF tree; a per-element refresh after create/update already runs when `repoNsf` matches, but agents still hand-edit stale `-noteId` file names when a write races or `repoRoot` is unset. Optional `repoRoot` relative to the MCP client workspace, a tool that returns the last sync time and element counts, and refusing `sync_repo` when `repoRoot` is missing with an actionable message would help. Stale DXL left on disk after `delete_design` should be removed from the tree when sync runs.
 
-MCP and agent UX. Prompts exist but many hosts barely surface them. `outputSchema` is richest on `list_databases`. Completions cover `type`, `nsfPath`, element `name`, `fileType`, `match`, and template names. Resources include `aldhani://types` and `aldhani://<nsf>/inventory`. Session-scoped default `nsfPath` remembers the last NSF in the MCP session. Progress updates during `export_design`, `inventory_design`, and `sync_repo`. Remaining polish: richer `outputSchema` on more tools, and a `debug` dump of the Kyber path and status (never tokens).
+MCP and agent UX. Prompts exist but many hosts barely surface them. Session default `nsfPath`, `aldhani://types`, inventory resources, progress, and the broader completions are shipped (see Call the endpoint). Remaining polish: richer `outputSchema` beyond `list_databases`, and a `debug` dump of the Kyber path and status (never tokens).
 
 Kyber dependencies. The remaining tools above that need routes already present in Kyber 0.26 should be wrapped next. Anything still waiting on new Kyber work stays in [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements).
 
@@ -146,7 +146,7 @@ Copy `aldhani.json.example` to `<Domino data>\aldhani.json`. `ALDHANI_CONFIG` ca
 | `allowedNsf` | NSF paths Kyber may be asked about. At least one. |
 | `insecureTls` | Trust DRAPI's certificate and skip hostname checks. Use this for a private certificate on the same server. |
 | `allowWrite` | When true, list the write tools (create/update/patch/copy/rename/delete/validate, plus create_database). Missing or false keeps an existing install read-only. |
-| `writeNsf` | Optional list of allowlisted NSFs that accept writes when `allowWrite` is true. Missing means every allowlisted NSF. Use this to keep app NSFs readable while only the sandbox is writable. |
+| `writeNsf` | Optional list of allowlisted NSFs that accept writes when `allowWrite` is true. Omit the key (do not use an empty list) to allow every allowlisted NSF. Use this to keep app NSFs readable while only the sandbox is writable. |
 | `repoRoot` | Optional directory. A design write refreshes that NSF here, and `sync_repo` refreshes every NSF in `repoNsf`. |
 | `repoNsf` | Optional list of allowlisted NSFs to write under `repoRoot`. Missing means every allowlisted NSF. |
 | `publicBaseUrl` | Optional HTTPS origin used in OAuth metadata, with no trailing slash. When it is missing, Aldhani uses the request host. |
@@ -162,11 +162,25 @@ Accepted protocol versions are `2024-11-05`, `2025-03-26`, `2025-06-18`, and `20
 
 `initialize` returns server instructions. Methods are `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/templates/list`, `resources/read`, `completion/complete`, `prompts/list`, `prompts/get`, and `logging/setLevel`. `notifications/cancelled` stops a call that is still running.
 
-A successful tool result that is a JSON object is also returned as `structuredContent`. Tools whose result is a JSON object declare `outputSchema`. `export_design` does not, because its usual result is DXL text. Allowlisted databases are resources at `aldhani://<nsf>`. The NSF path may contain slashes, and the longest allowlisted path is the database. A collection is `aldhani://<nsf>/<type>`, a database note such as `acl` is that same shape, and one element is `aldhani://<nsf>/<type>/<name>`. Reading the database resource returns that database. `completion/complete` finishes `type`, `nsfPath`, and, when `type` is already set, `name`.
+A successful tool result that is a JSON object is also returned as `structuredContent`. Tools whose result is a JSON object declare `outputSchema`. `export_design` does not, because its usual result is DXL text.
+
+Resources:
+
+| URI | Content |
+| --- | --- |
+| `aldhani://types` | Collection and singleton type names (no Kyber call). |
+| `aldhani://<nsf>` | That allowlisted database from `list_databases`. |
+| `aldhani://<nsf>/inventory` | `inventory_design` for that NSF. |
+| `aldhani://<nsf>/<type>` | `list_design` or a singleton `get_design`. |
+| `aldhani://<nsf>/<type>/<name>` | One element via `get_design`. |
+
+The NSF path may contain slashes; the longest allowlisted path wins. Templates mirror the same shapes with `{nsfPath}`.
+
+`completion/complete` finishes `type`, `nsfPath` from `allowedNsf`, `fileType`, `match`, and, when `type` is already set, element `name` / `toName` / `newName` from `list_design`, or `template` from `list_templates`.
 
 Prompts are `review_design` and `explain_design`. `create_element` is listed when `allowWrite` is true. Each one tells the agent which tool to call. They do not write by themselves. A `cursor` on `prompts/list` is an error, because the list is not paged.
 
-`logging/setLevel` takes a syslog severity (`debug` through `emergency`). A tool call then emits `notifications/message` at that severity and above. A call that includes `_meta.progressToken` also emits `notifications/progress`. When `Accept` contains `text/event-stream`, those messages are written on the response as they happen, and the JSON-RPC result is the last event. A client that asks only for `application/json` still receives the result.
+`logging/setLevel` takes a syslog severity (`debug` through `emergency`). A tool call then emits `notifications/message` at that severity and above. A call that includes `_meta.progressToken` also emits `notifications/progress` (including mid-call updates from `export_design`, `inventory_design`, and `sync_repo`). When `Accept` contains `text/event-stream`, those messages are written on the response as they happen, and the JSON-RPC result is the last event. A client that asks only for `application/json` still receives the result.
 
 A missing or wrong token returns 401. The challenge is `Aldhani`, and also `Bearer` with `resource_metadata` pointing at `/.well-known/oauth-protected-resource/mcp`.
 
@@ -218,7 +232,7 @@ Replace the host. The header value is the same string as `bearerToken`.
 
 Kyber databases of the given `fileType` that are also on `allowedNsf`. The default `fileType` is `database`. Also accepted: `notes_database`, `template`, `replica_candidate`, `template_candidate`, and the Notes file-type numbers Kyber accepts (`1247`, `1248`, `1245`, `1246`).
 
-The result has `allowedNsf`, `databases` (`nsfPath`, `replicaId`, `dbTitle`), and `missing`.
+The result has `allowedNsf`, `databases` (`nsfPath`, `replicaId`, `dbTitle`), and `missing`. When Kyber signals more pages, the result also has `more` set to true.
 
 ### list_design
 
@@ -290,7 +304,7 @@ Resolves empty-create starter DXL via `POST /defaults/preview` without writing. 
 
 ### get_content
 
-Returns binary content as `contentBase64` via `GET /content`. `type` is `image`, `fileresource`, `jar`, or `dbicon`. `name` is required except for `dbicon`.
+Returns binary content as `contentBase64` via `GET /content`. `type` is `image`, `fileresource`, `jar`, or `dbicon`. `name` is required except for `dbicon`. `part` pages a large body the same way as `get_design`.
 
 ### repo_path
 
@@ -305,7 +319,7 @@ Reads `GET /export` and writes every element under `repoRoot`, replacing that NS
 Listed only when `allowWrite` is true. They call Kyber as `kyberUser`.
 
 - `create_database` posts to `POST /database`. `nsfPath` must be on `allowedNsf`. `dbTitle` sets the title. Kyber sets the category `KyberEnabled` and gives the caller Manager. An existing file is left unchanged. Database delete is not a tool.
-- `create_database_from_template` posts to `POST /database/fromTemplate`. Target `nsfPath` must be allowlisted. `templateNsfPath` is path-safe but need not be allowlisted.
+- `create_database_from_template` posts to `POST /database/fromTemplate`. Target `nsfPath` must be allowlisted. `templateNsfPath` is path-safe but need not be allowlisted. Optional `encryption` (`none`, `simple`, `medium`, `strong`, `aes128`, `aes256`).
 - `set_db_title` puts `dbTitle` via `PUT /database`.
 - `set_kyber_enabled` puts `enabled` via `PUT /database/category`.
 - `create_design` posts to the collection (including `designnotes`). `name` is required. Omit `dxl` to copy Kyber's starter. `template` selects a named starter from `list_templates` (not with `dxl`). Agents, script libraries, and Java sources take `kind`. `about`, `using`, `databasescript`, and `xspproperties` can be created. `acl`, `applicationproperties`, and `dbicon` cannot.
@@ -313,7 +327,7 @@ Listed only when `allowWrite` is true. They call Kyber as `kyberUser`.
 - `patch_design` patches `comment` and/or `alias` via `PATCH /patch` without replacing the DXL.
 - `copy_design` posts to `POST /copy`. `toNsfPath` may be another allowlisted NSF.
 - `rename_design` posts to `POST /rename`.
-- `update_content` puts `contentBase64` via `PUT /content` for `image`, `fileresource`, `jar`, or `dbicon`.
+- `update_content` puts `contentBase64` via `PUT /content` for `image`, `fileresource`, `jar`, or `dbicon`. Optional `contentType` (for example `image/png`).
 - `recompile_lotusscript` posts to `POST /compile`.
 - `inherit_design` posts to `POST /database/inherit`. Optional `templateServer`.
 - `delete_design` deletes a named element, or `about`, `using`, `databasescript`, or `xspproperties`. `acl`, `applicationproperties`, and `dbicon` cannot be deleted.
