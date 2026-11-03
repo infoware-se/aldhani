@@ -57,8 +57,6 @@ Kyber is the design API. This section is Aldhani's own backlog: MCP, allowlist, 
 
 Bearer login. Aldhani already issues an RS256 access token, and `POST /mcp` accepts `Authorization: Bearer` when the token is one it signed. Domino's HTTP task swallows that header and returns the login page until the internet site trusts Aldhani as an OIDC provider and has Bearer authentication enabled. The discovery document Domino reads is `GET /oauth/.well-known/openid-configuration`, and the key is `GET /oauth/jwks`. Until that trust is in place, clients keep using `Authorization: Aldhani`.
 
-Smoke on a server with more than one allowlisted NSF. The live check expects `allowedNsf` to be exactly `aldhanitest.nsf`, so a server that also allowlists application databases fails before it exercises the tools.
-
 A call that omits `nsfPath` when several databases are allowlisted. `onlyNsf()` returns nothing in that case and the call errors. The self-test never takes that path. A clearer error that names the allowlisted paths, or a required `nsfPath` in every tool schema when more than one NSF is listed, would stop agents guessing.
 
 A write probe that sends real DXL. The smoke run creates `AldhaniSmokeProbe` from `<form/>` and deletes it. That shows the route accepts a body. It does not show that a design note survives a round trip. Prefer a get-after-put assertion and a `validate_design` round trip on a known good form.
