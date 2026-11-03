@@ -34,15 +34,16 @@ final class DesignTools {
     private static final Set<String> READ_NAMES = Set.of(
             "list_databases", "list_design", "get_design", "export_design", "inventory_design",
             "search_design", "list_templates", "preview_starter", "get_content",
-            "repo_path", "sync_repo");
+            "repo_path", "repo_status", "sync_repo", "debug_kyber");
     private static final Set<String> WRITE_NAMES = Set.of(
             "list_databases", "list_design", "get_design", "export_design", "inventory_design",
             "search_design", "list_templates", "preview_starter", "get_content",
-            "repo_path", "sync_repo",
+            "repo_path", "repo_status", "sync_repo", "debug_kyber",
             "create_database", "create_database_from_template", "set_db_title", "set_kyber_enabled",
             "create_design", "update_design", "patch_design",
             "copy_design", "rename_design", "update_content", "recompile_lotusscript",
             "inherit_design", "delete_design", "validate_design");
+    private static final int SKIPPED_DETAIL_LIMIT = 50;
     private static final Set<String> SEARCH_MATCH = Set.of("name", "dxl", "both");
     private static final Set<String> CONTENT_TYPES = Set.of("image", "fileresource", "jar", "dbicon");
     private static final String XML = "text/xml; charset=utf-8";
@@ -120,7 +121,9 @@ final class DesignTools {
                 case "preview_starter" -> previewStarter(arguments);
                 case "get_content" -> getContent(arguments);
                 case "repo_path" -> RepoLayout.describe(arguments);
+                case "repo_status" -> Json.write(RepoSync.status(config));
                 case "sync_repo" -> syncRepo(arguments);
+                case "debug_kyber" -> debugKyber();
                 case "create_database" -> createDatabase(arguments);
                 case "create_database_from_template" -> createDatabaseFromTemplate(arguments);
                 case "set_db_title" -> setDbTitle(arguments);
@@ -336,10 +339,26 @@ final class DesignTools {
         return body;
     }
 
+    private String debugKyber() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("kyberBaseUrl", config.kyberBaseUrl);
+        Map<String, Object> last = kyber.lastExchange();
+        if (last.isEmpty()) {
+            result.put("last", Map.of());
+        } else {
+            result.put("last", last);
+        }
+        return Json.write(result);
+    }
+
+    Map<String, Object> lastKyber() {
+        return kyber.lastExchange();
+    }
+
     private String syncRepo(Map<String, Object> arguments) {
         if (config.repoRoot == null) {
             throw new IllegalArgumentException(
-                    "repoRoot is not set in aldhani.json; set it to a directory then call sync_repo again");
+                    "repoRoot is not set in aldhani.json; set it to an absolute directory then call sync_repo again");
         }
         String given = Json.string(arguments.get("nsfPath"));
         List<String> targets = new ArrayList<>();
@@ -712,6 +731,37 @@ final class DesignTools {
         Object skipped = document.get("skipped");
         if (skipped instanceof List<?> list && !list.isEmpty()) {
             result.put("skipped", list.size());
+            List<Object> details = new ArrayList<>();
+            int limit = Math.min(list.size(), SKIPPED_DETAIL_LIMIT);
+            for (int i = 0; i < limit; i++) {
+                Object item = list.get(i);
+                if (!(item instanceof Map<?, ?>)) {
+                    continue;
+                }
+                Map<String, Object> source = Json.object(item);
+                Map<String, Object> row = new LinkedHashMap<>();
+                String type = Json.string(source.get("type"));
+                if (type != null && !type.isBlank()) {
+                    row.put("type", type);
+                }
+                String name = Json.string(source.get("name"));
+                if (name != null && !name.isBlank()) {
+                    row.put("name", name);
+                }
+                String message = Json.string(source.get("message"));
+                if (message == null) {
+                    message = Json.string(source.get("error"));
+                }
+                if (message != null && !message.isBlank()) {
+                    row.put("message", message);
+                }
+                if (!row.isEmpty()) {
+                    details.add(row);
+                }
+            }
+            if (!details.isEmpty()) {
+                result.put("skippedElements", details);
+            }
         }
         reportProgress("Finished inventory_design", 1, 1);
         return Json.write(result);

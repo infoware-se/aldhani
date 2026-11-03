@@ -8,7 +8,7 @@ An MCP server for an AI agent that creates, reads, updates, and deletes Domino d
 
 Aldhani is an MCP server for HCL Domino design. It runs as an OSGi servlet on the Domino HTTP task and answers MCP at `POST /mcp`. Every design call is a Kyber call on DRAPI. Kyber remains the API that changes design. Writes are off unless `allowWrite` is true.
 
-Version 0.1.16. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
+Version 0.1.17. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
 
 Design API: [Kyber](https://github.com/infoware-se/kyber). Releases: [jar attachments](https://github.com/infoware-se/aldhani/releases). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.md](SECURITY.md).
 
@@ -33,7 +33,7 @@ Kyber is the design API. Aldhani is the MCP product in front of it. Keep that sp
 | Changes design in an NSF | Yes — create, update, delete, export, import, validate, compile, binary content, inherit | No — every design mutation is a Kyber call as `kyberUser` |
 | Chooses which NSF an agent may touch | Catalog category `KyberEnabled` + Domino ACL | `allowedNsf` allowlist before Kyber is called |
 | Chooses which routes an agent may call | Ships the full design surface | Tool list, `allowWrite`, and explicit refusals |
-| Own work without Kyber | — | `repo_path` / `sync_repo` under `repoRoot` (disk only) |
+| Own work without Kyber | — | `repo_path` / `repo_status` / `sync_repo` under `repoRoot` (disk only); `debug_kyber` |
 
 Aldhani must not grow a second DXL writer. New Domino design capability belongs in Kyber first; Aldhani wraps it and applies policy. Aldhani backlog is MCP, allowlist, writes policy, repo sync, smoke, and wrapping. Kyber backlog is design routes and round-trip behavior — see [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements).
 
@@ -74,7 +74,7 @@ Kyber is the design API. This section is Aldhani's own backlog: MCP, allowlist, 
 
 Bearer login. Aldhani already issues an RS256 access token, and `POST /mcp` accepts `Authorization: Bearer` when the token is one it signed. Domino's HTTP task swallows that header and returns the login page until the internet site trusts Aldhani as an OIDC provider and has Bearer authentication enabled. The discovery document Domino reads is `GET /oauth/.well-known/openid-configuration`, and the key is `GET /oauth/jwks`. Until that trust is in place, clients keep using `Authorization: Aldhani`.
 
-A write probe that sends real DXL. The smoke run creates `AldhaniSmokeProbe` from `<form/>` and deletes it. That shows the route accepts a body. It does not show that a design note survives a round trip. Prefer a get-after-put assertion and a `validate_design` round trip on a known good form.
+Shipped in 0.1.17. Every tool declares `outputSchema`. `debug_kyber` and debug-level logs expose the last Kyber method/path/status without tokens. `repo_status` reports synced trees under `repoRoot`. Inventory includes `skippedElements`. Smoke asserts get-after-put and `validate_design` on a known-good form. `delete_design` refreshes the repo tree when `repoNsf` matches so stale DXL is removed.
 
 Shipped against Kyber 0.26+. Helpers for search/lookup/copy/rename/patch, templates/binary/compile, database title/category/fromTemplate/inherit, typed `designnote` CRUD, `databases.more`, ACL `entries`/`roles` on `get_design` type `acl`, `/named` for parenthesis titles, and per-NSF `writeNsf` grants wrap the matching Kyber routes and Aldhani policy.
 
@@ -82,13 +82,13 @@ Missing design tools (high value). Need new Kyber routes first: `diff_design`, `
 
 Missing design tools (medium value). `list_agents_schedule`, `import_design_element` (one DXL create-or-replace, not a full NSF import).
 
-Missing design tools (lower value, still worth tracking). `repo_status`, expose Kyber export `skipped` detail (count is already on inventory), design-note undo or version history, formula-only validate separate from DXL `validate_design`, list private vs shared design, compare inventories across two allowlisted NSFs, and chunked or resumable write for DXL larger than the MCP truncation window.
+Missing design tools (lower value, still worth tracking). Design-note undo or version history, formula-only validate separate from DXL `validate_design`, list private vs shared design, compare inventories across two allowlisted NSFs, and chunked or resumable write for DXL larger than the MCP truncation window.
 
-Repo sync polish. `sync_repo` replaces a whole NSF tree; a per-element refresh after create/update already runs when `repoNsf` matches, but agents still hand-edit stale `-noteId` file names when a write races or `repoRoot` is unset. Optional `repoRoot` relative to the MCP client workspace, a tool that returns the last sync time and element counts, and refusing `sync_repo` when `repoRoot` is missing with an actionable message would help. Stale DXL left on disk after `delete_design` should be removed from the tree when sync runs.
+Repo sync polish. `sync_repo` and post-write/`delete_design` refresh replace a whole NSF tree when `repoNsf` matches. Remaining: optional `repoRoot` relative to the MCP client workspace, and clearer agent guidance when a write races while `repoRoot` is unset.
 
-MCP and agent UX. Prompts exist but many hosts barely surface them. Session default `nsfPath`, `aldhani://types`, inventory resources, progress, and the broader completions are shipped (see Call the endpoint). Remaining polish: richer `outputSchema` beyond `list_databases`, and a `debug` dump of the Kyber path and status (never tokens).
+MCP and agent UX. Prompts exist but many hosts barely surface them. Session default `nsfPath`, `aldhani://types`, inventory resources, progress, completions, richer `outputSchema`, and `debug_kyber` are shipped (see Call the endpoint).
 
-Kyber dependencies. The remaining tools above that need routes already present in Kyber 0.26 should be wrapped next. Anything still waiting on new Kyber work stays in [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements).
+Kyber dependencies. Anything still waiting on new Kyber work stays in [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements).
 
 Keep out of tools. Database delete, full design import or replace, and ACL replace or delete stay unavailable on purpose. Application documents, DQL, running agents, server console, compact, quota, and user administration stay outside this design MCP; another product can cover those.
 
@@ -107,7 +107,7 @@ DRAPI's data port can stay unpublished. Aldhani calls it from the same machine. 
 .\build.ps1
 ```
 
-The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.16.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
+The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.17.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
 
 `target\` is gitignored.
 
@@ -115,8 +115,8 @@ The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `t
 
 The HTTP task loads the feature only when it is listed in `platform.xml`. The applications site on Domino uses the `USER-EXCLUDE` policy, and Equinox reads the feature as a directory, so copying a jar into `plugins` is not enough. `install.ps1` does three things:
 
-- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.16.jar`
-- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.16\`
+- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.17.jar`
+- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.17\`
 - adds the feature under the applications site in `domino\workspace\.config\org.eclipse.update\platform.xml`
 
 Stop HTTP first. On shutdown the HTTP task rewrites `platform.xml` from memory, so an edit made while HTTP is running is lost. `tell http restart` does not reload this configuration.
@@ -288,7 +288,7 @@ Exports the design of one allowed NSF as DXL. The body is large. Prefer `invento
 
 ### inventory_design
 
-Lists every design element in one allowed NSF without DXL. Each row has `type`, `name` when present, `noteId`, and `unid`. Prefer this before `get_design`.
+Lists every design element in one allowed NSF without DXL. Each row has `type`, `name` when present, `noteId`, and `unid`. When Kyber reports skipped notes, the response includes `skipped` (count) and `skippedElements` (`type`, optional `name`, `message`). Prefer this before `get_design`.
 
 ### search_design
 
@@ -310,9 +310,17 @@ Returns binary content as `contentBase64` via `GET /content`. `type` is `image`,
 
 Returns the Package Explorer path for a design file. It does not call Kyber. Omit `type` to list every folder. `nsfPath` and `replicaId` are set together and produce `domino/<nsfPath>-<replicaId>`. `noteId` makes the file `<name>-<noteId>.dxl`. Singular and plural type names both work. Java sources keep their package under `Code/Java`. An XPages resource under `WEB-INF` is `WebContent/WEB-INF`.
 
+### repo_status
+
+Reads `manifest.json` trees under `repoRoot` and returns `nsfPath`, `replicaId`, `elementCount`, `root`, and `syncedAt`. Does not call Kyber. Fails when `repoRoot` is unset.
+
 ### sync_repo
 
-Reads `GET /export` and writes every element under `repoRoot`, replacing that NSF's folder. The database icon is `Resources/Images/$DBIcon-<noteId>.dxl`. Omit `nsfPath` to refresh every NSF in `repoNsf`. Design writes that change an NSF do the same refresh when that NSF is in `repoNsf`. `validate_design` does not.
+Reads `GET /export` and writes every element under `repoRoot`, replacing that NSF's folder. The database icon is `Resources/Images/$DBIcon-<noteId>.dxl`. Omit `nsfPath` to refresh every NSF in `repoNsf`. Design writes and deletes that change an NSF do the same refresh when that NSF is in `repoNsf`, so stale DXL is removed. `validate_design` does not. Fails when `repoRoot` is unset.
+
+### debug_kyber
+
+Returns `kyberBaseUrl` and the last Kyber HTTP `method`, `path` (query stripped), `status`, and `ok`. Never includes tokens, passwords, or bodies.
 
 ### create_database, create_database_from_template, set_db_title, set_kyber_enabled, create_design, update_design, patch_design, copy_design, rename_design, update_content, recompile_lotusscript, inherit_design, delete_design, validate_design
 
@@ -339,7 +347,7 @@ Read tools are marked read-only. `delete_design` is marked destructive.
 
 ## Smoke
 
-`smoke.ps1` calls a running servlet. It checks anonymous and wrong-token rejection, the `Aldhani` challenge, `GET` and `DELETE` 405, ping, an unknown method, instructions, the prompts and logging capabilities, `review_design`, type completion, an allowlisted resource, `outputSchema` on `list_databases`, and the read-only and destructive hints. It reads the OAuth discovery document. It reads every collection and every database note in `aldhanitest.nsf`, including `SmokeForm`, `SmokeView`, the `SmokeAgent*` agents, and `SmokeXPage.xsp`. Each sampled element has a UNID on the list and on the get. `limit` on agents keeps the first row. `type=defaults` is refused. The export is either full DXL or a JSON object with `truncated` and `chars` and no DXL. `kybertest.nsf` is refused. When the write tools are listed, the run creates `AldhaniSmokeProbe`, updates it, refuses an ACL replace, validates a broken form without writing, and deletes the probe. When they are not listed, calling them is an error.
+`smoke.ps1` calls a running servlet. It checks anonymous and wrong-token rejection, the `Aldhani` challenge, `GET` and `DELETE` 405, ping, an unknown method, instructions, the prompts and logging capabilities, `review_design`, type completion, an allowlisted resource, `outputSchema` on every tool, and the read-only and destructive hints. It reads the OAuth discovery document. It reads every collection and every database note in `aldhanitest.nsf`, including `SmokeForm`, `SmokeView`, the `SmokeAgent*` agents, and `SmokeXPage.xsp`. Each sampled element has a UNID on the list and on the get. `limit` on agents keeps the first row. `type=defaults` is refused. The export is either full DXL or a JSON object with `truncated` and `chars` and no DXL. `kybertest.nsf` is refused. When the write tools are listed, the run creates `AldhaniSmokeProbe`, asserts get-after-put, validates a known-good form DXL, refuses an ACL replace, validates a broken form without writing, checks `debug_kyber`, and deletes the probe. When they are not listed, calling them is an error.
 
 ```powershell
 .\smoke.ps1

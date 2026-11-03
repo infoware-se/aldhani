@@ -156,7 +156,7 @@ public final class AldhaniSelfTest {
         RecordingKyber kyber = new RecordingKyber();
         DesignTools tools = new DesignTools(sample(), kyber);
         expect(false, tools.writesEnabled());
-        expect(11, tools.names().size());
+        expect(13, tools.names().size());
         DesignTools.ToolResult refused = tools.call("create_design", Map.of("type", "form", "name", "Main"));
         expect(true, refused.error());
         expect(0, kyber.calls.size());
@@ -164,7 +164,7 @@ public final class AldhaniSelfTest {
         McpProtocol.HttpReply listed = protocol.handle("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list"}""");
         List<?> definitions = (List<?>) Json.object(Json.object(Json.parse(listed.body())).get("result")).get("tools");
-        expect(11, definitions.size());
+        expect(13, definitions.size());
         expect(Boolean.TRUE, Json.object(Json.object(definitions.get(1)).get("annotations")).get("readOnlyHint"));
         McpProtocol.HttpReply call = protocol.handle("""
                 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_design","arguments":{"type":"form","name":"Main"}}}""");
@@ -177,7 +177,7 @@ public final class AldhaniSelfTest {
         kyber.reply = "{\"ok\":true}";
         DesignTools tools = new DesignTools(writable(), kyber);
         expect(true, tools.writesEnabled());
-        expect(25, tools.names().size());
+        expect(27, tools.names().size());
 
         expect(false, tools.call("create_design", Map.of("type", "form", "name", "Main")).error());
         expect("POST /api/kyber-v1/forms?nsfPath=aldhanitest.nsf&name=Main", kyber.calls.get(kyber.calls.size() - 1));
@@ -223,11 +223,11 @@ public final class AldhaniSelfTest {
         McpProtocol.HttpReply listed = protocol.handle("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list"}""");
         List<?> definitions = (List<?>) Json.object(Json.object(Json.parse(listed.body())).get("result")).get("tools");
-        expect(25, definitions.size());
-        Map<String, Object> delete = Json.object(definitions.get(23));
+        expect(27, definitions.size());
+        Map<String, Object> delete = Json.object(definitions.get(25));
         expect("delete_design", delete.get("name"));
         expect(Boolean.TRUE, Json.object(delete.get("annotations")).get("destructiveHint"));
-        expect(Boolean.TRUE, Json.object(Json.object(definitions.get(24)).get("annotations")).get("readOnlyHint"));
+        expect(Boolean.TRUE, Json.object(Json.object(definitions.get(26)).get("annotations")).get("readOnlyHint"));
     }
 
     private static void wrapsKyberHelpers() {
@@ -449,7 +449,25 @@ public final class AldhaniSelfTest {
                 {"jsonrpc":"2.0","id":2,"method":"tools/list"}""");
         List<?> definitions = (List<?>) Json.object(Json.object(Json.parse(tools.body())).get("result")).get("tools");
         expect(true, Json.object(definitions.get(0)).containsKey("outputSchema"));
-        expect(false, Json.object(definitions.get(3)).containsKey("outputSchema"));
+        expect(true, Json.object(definitions.get(3)).containsKey("outputSchema"));
+        expect("export_design", Json.object(definitions.get(3)).get("name"));
+        expect(true, Json.object(definitions.get(4)).containsKey("outputSchema"));
+        expect("inventory_design", Json.object(definitions.get(4)).get("name"));
+        boolean sawDebug = false;
+        boolean sawRepoStatus = false;
+        for (Object item : definitions) {
+            Map<String, Object> tool = Json.object(item);
+            String name = Json.string(tool.get("name"));
+            expect(true, tool.containsKey("outputSchema"));
+            if ("debug_kyber".equals(name)) {
+                sawDebug = true;
+            }
+            if ("repo_status".equals(name)) {
+                sawRepoStatus = true;
+            }
+        }
+        expect(true, sawDebug);
+        expect(true, sawRepoStatus);
 
         McpProtocol.HttpReply prompts = protocol.handle("""
                 {"jsonrpc":"2.0","id":3,"method":"prompts/list"}""");
@@ -744,7 +762,7 @@ public final class AldhaniSelfTest {
                     {"nsfPath":"aldhanitest.nsf","elements":[
                       {"type":"image","name":"$DBIcon","noteId":"136","unid":"AAA","dxl":"<note/>"},
                       {"type":"form","name":"Note","noteId":"13a","dxl":"<form/>"}
-                    ]}""";
+                    ],"skipped":[{"type":"frameset","name":"Broken","message":"cannot read"}]}""";
         });
         DesignTools.ToolResult result = tools.call("inventory_design", Map.of());
         expect(false, result.error());
@@ -760,6 +778,14 @@ public final class AldhaniSelfTest {
         expect("AAA", icon.get("unid"));
         expect(false, icon.containsKey("dxl"));
         expect(false, result.text().contains("<form"));
+        expect(1, ((Number) json.get("skipped")).intValue());
+        List<?> skipped = (List<?>) json.get("skippedElements");
+        expect(1, skipped.size());
+        expect("frameset", Json.object(skipped.get(0)).get("type"));
+        expect("cannot read", Json.object(skipped.get(0)).get("message"));
+        DesignTools.ToolResult debug = tools.call("debug_kyber", Map.of());
+        expect(false, debug.error());
+        expect("https://domino.example", Json.object(Json.parse(debug.text())).get("kyberBaseUrl"));
     }
 
     private static void createsAnAllowlistedDatabase() {
@@ -808,12 +834,28 @@ public final class AldhaniSelfTest {
             expect(true, Files.exists(tree.resolve("Forms").resolve("Note-13a.dxl")));
             expect(true, Files.exists(tree.resolve("Resources").resolve("Images").resolve("$DBIcon-136.dxl")));
 
+            DesignTools.ToolResult status = tools.call("repo_status", Map.of());
+            expect(false, status.error());
+            Map<String, Object> statusJson = Json.object(Json.parse(status.text()));
+            expect(temp.toAbsolutePath().normalize().toString(), statusJson.get("repoRoot"));
+            List<?> statusDbs = (List<?>) statusJson.get("databases");
+            expect(1, statusDbs.size());
+            expect("aldhanitest.nsf", Json.object(statusDbs.get(0)).get("nsfPath"));
+            expect(2, ((Number) Json.object(statusDbs.get(0)).get("elementCount")).intValue());
+
             kyber.export = exportOf(null, null, null, null);
+            DesignTools.ToolResult deleted = tools.call("delete_design", Map.of(
+                    "type", "form", "name", "Note", "nsfPath", "aldhanitest.nsf"));
+            expect(false, deleted.error());
+            expect(false, Files.exists(tree.resolve("Forms").resolve("Note-13a.dxl")));
+            expect(true, Files.exists(tree.resolve("Resources").resolve("Images").resolve("$DBIcon-136.dxl")));
+
             DesignTools.ToolResult again = tools.call("sync_repo", Map.of("nsfPath", "aldhanitest.nsf"));
             expect(false, again.error());
             expect(false, Files.exists(tree.resolve("Forms").resolve("Note-13a.dxl")));
             expect(true, Files.exists(tree.resolve("Resources").resolve("Images").resolve("$DBIcon-136.dxl")));
             expect(true, tools.call("sync_repo", Map.of("nsfPath", "workshop.nsf")).error());
+            expect(true, plain.call("repo_status", Map.of()).error());
         } finally {
             deleteTemp(temp);
         }

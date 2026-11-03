@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
@@ -17,6 +18,11 @@ import javax.net.ssl.X509TrustManager;
 
 interface KyberGet {
     String get(String pathAndQuery);
+
+    /** Last Kyber HTTP exchange for support dumps. Never includes tokens or bodies. */
+    default Map<String, Object> lastExchange() {
+        return Map.of();
+    }
 }
 
 /** Kyber calls that send a body. Reads stay on {@link KyberGet}. */
@@ -29,6 +35,8 @@ final class KyberClient implements KyberExchange {
     private final HttpClient http;
     private volatile String bearer;
     private final Object loginLock = new Object();
+    private final Object lastLock = new Object();
+    private Map<String, Object> lastExchange = Map.of();
 
     KyberClient(AldhaniConfig config) {
         this.config = config;
@@ -51,9 +59,16 @@ final class KyberClient implements KyberExchange {
         return send(method, pathAndQuery, body, contentType, true);
     }
 
+    public Map<String, Object> lastExchange() {
+        synchronized (lastLock) {
+            return lastExchange;
+        }
+    }
+
     private String send(
             String method, String pathAndQuery, String body, String contentType, boolean retryOnUnauthorized) {
         if (Thread.currentThread().isInterrupted()) {
+            remember(method, pathAndQuery, 0, false, "interrupted");
             throw new KyberException(0, "Kyber call was interrupted");
         }
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(config.kyberBaseUrl + pathAndQuery))
@@ -71,17 +86,47 @@ final class KyberClient implements KyberExchange {
         if (!pathAndQuery.startsWith("/api/v1/auth")) {
             request.header("Authorization", "Bearer " + token());
         }
-        HttpResponse<String> response = send(request.build());
+        HttpResponse<String> response;
+        try {
+            response = send(request.build());
+        } catch (KyberException ex) {
+            remember(method, pathAndQuery, ex.status, false, ex.getMessage());
+            throw ex;
+        }
         if (response.statusCode() == 401 && retryOnUnauthorized && !pathAndQuery.startsWith("/api/v1/auth")) {
             synchronized (loginLock) {
                 bearer = null;
             }
             return send(method, pathAndQuery, body, contentType, false);
         }
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+        boolean ok = response.statusCode() >= 200 && response.statusCode() < 300;
+        remember(method, pathAndQuery, response.statusCode(), ok, ok ? null : clip(response.body()));
+        if (!ok) {
             throw new KyberException(response.statusCode(), clip(response.body()));
         }
         return response.body();
+    }
+
+    private void remember(String method, String pathAndQuery, int status, boolean ok, String error) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("method", method);
+        snapshot.put("path", pathOnly(pathAndQuery));
+        snapshot.put("status", status);
+        snapshot.put("ok", ok);
+        if (error != null && !error.isBlank()) {
+            snapshot.put("error", error.length() <= 500 ? error : error.substring(0, 500));
+        }
+        synchronized (lastLock) {
+            lastExchange = Map.copyOf(snapshot);
+        }
+    }
+
+    private static String pathOnly(String pathAndQuery) {
+        if (pathAndQuery == null) {
+            return "";
+        }
+        int q = pathAndQuery.indexOf('?');
+        return q < 0 ? pathAndQuery : pathAndQuery.substring(0, q);
     }
 
     private String token() {

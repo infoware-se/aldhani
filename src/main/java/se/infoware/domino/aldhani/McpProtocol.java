@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 final class McpProtocol {
-    static final String VERSION = "0.1.16";
+    static final String VERSION = "0.1.17";
     private static final String LATEST_PROTOCOL = "2025-11-25";
     private static final Set<String> PROTOCOL_VERSIONS = Set.of(
             "2024-11-05",
@@ -179,7 +179,7 @@ final class McpProtocol {
                 raw instanceof Map<?, ?> ? Json.object(raw) : Map.of());
         applySessionNsf(arguments);
         Object progressToken = progressToken(params);
-        log("info", "aldhani", callData(name, arguments, "started"));
+        log("info", "aldhani", callData(name, arguments, "started", Map.of()));
         if (progressToken != null) {
             progress(progressToken, 0, 1, "Started " + name);
             DesignTools.PROGRESS.set(new DesignTools.Progress(update ->
@@ -197,7 +197,12 @@ final class McpProtocol {
         if (progressToken != null) {
             progress(progressToken, 1, 1, (outcome.error() ? "Failed " : "Finished ") + name);
         }
-        log(outcome.error() ? "error" : "info", "aldhani", callData(name, arguments, outcome.error() ? "failed" : "finished"));
+        Map<String, Object> finished = callData(
+                name, arguments, outcome.error() ? "failed" : "finished", tools.lastKyber());
+        log(outcome.error() ? "error" : "info", "aldhani", finished);
+        if (!tools.lastKyber().isEmpty()) {
+            log("debug", "aldhani.kyber", Map.copyOf(tools.lastKyber()));
+        }
         if (!outcome.error()) {
             rememberSessionNsf(arguments, outcome.text());
         }
@@ -378,15 +383,32 @@ final class McpProtocol {
                 List.of(),
                 read));
         definitions.add(tool(
+                "repo_status",
+                "Reports NSF trees under repoRoot from their manifest.json files: "
+                        + "nsfPath, replicaId, elementCount, root, and syncedAt. "
+                        + "Does not call Kyber. Fails when repoRoot is unset.",
+                Map.of(),
+                List.of(),
+                read));
+        definitions.add(tool(
                 "sync_repo",
                 "Writes every design element Kyber exports into repoRoot, using Package Explorer paths. "
                         + "Includes the database icon as Resources/Images/$DBIcon-<noteId>.dxl. "
                         + "Omit nsfPath to refresh every NSF in repoNsf. "
-                        + "A design write does this for the NSF it changed when that NSF is in repoNsf.",
+                        + "A design write or delete does this for the NSF it changed when that NSF is in repoNsf, "
+                        + "so stale DXL files are removed. "
+                        + "Fails with an actionable message when repoRoot is unset.",
                 Map.of(
                         "nsfPath", prop("string", "NSF to refresh. Omit to refresh every NSF in repoNsf.")),
                 List.of(),
                 hints(false, false, true)));
+        definitions.add(tool(
+                "debug_kyber",
+                "Returns the last Kyber HTTP method, path (without query), status, and ok flag for support. "
+                        + "Never includes tokens, passwords, or request bodies.",
+                Map.of(),
+                List.of(),
+                read));
         if (tools.writesEnabled()) {
             definitions.add(tool(
                     "create_database",
@@ -566,17 +588,26 @@ final class McpProtocol {
     private static Map<String, Object> outputSchema(String name) {
         return switch (name) {
             case "list_databases" -> listDatabasesSchema();
-            case "repo_path", "sync_repo", "inventory_design", "search_design", "list_templates",
-                    "preview_starter", "get_content", "create_database",
-                    "create_database_from_template", "set_db_title", "set_kyber_enabled",
-                    "recompile_lotusscript", "inherit_design" ->
-                    Map.of("type", "object", "additionalProperties", true);
-            case "list_design", "get_design" -> designObjectSchema();
-            case "create_design", "update_design", "patch_design", "copy_design", "rename_design",
-                    "update_content", "delete_design", "validate_design" ->
-                    Map.of("type", "object", "additionalProperties", true);
+            case "inventory_design" -> inventorySchema();
+            case "search_design" -> searchSchema();
+            case "repo_path" -> repoPathSchema();
+            case "repo_status" -> repoStatusSchema();
+            case "sync_repo" -> syncRepoSchema();
+            case "debug_kyber" -> debugKyberSchema();
+            case "validate_design" -> validateSchema();
+            case "list_design", "get_design", "export_design", "get_content", "preview_starter" ->
+                    designObjectSchema();
+            case "list_templates", "create_database", "create_database_from_template",
+                    "set_db_title", "set_kyber_enabled", "recompile_lotusscript", "inherit_design",
+                    "create_design", "update_design", "patch_design", "copy_design", "rename_design",
+                    "update_content", "delete_design" ->
+                    objectSchema();
             default -> null;
         };
+    }
+
+    private static Map<String, Object> objectSchema() {
+        return Map.of("type", "object", "additionalProperties", true);
     }
 
     private static Map<String, Object> listDatabasesSchema() {
@@ -592,20 +623,111 @@ final class McpProtocol {
         return schema;
     }
 
-    private static Map<String, Object> designObjectSchema() {
+    private static Map<String, Object> inventorySchema() {
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        schema.put("additionalProperties", true);
+        schema.put("required", List.of("nsfPath", "elementCount", "elements"));
+        schema.put("properties", Map.of(
+                "nsfPath", Map.of("type", "string"),
+                "replicaId", Map.of("type", "string"),
+                "elementCount", Map.of("type", "integer"),
+                "elements", Map.of("type", "array", "items", Map.of("type", "object")),
+                "skipped", Map.of("type", "integer"),
+                "skippedElements", Map.of("type", "array", "items", Map.of("type", "object"))));
+        return schema;
+    }
+
+    private static Map<String, Object> searchSchema() {
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "object");
         schema.put("additionalProperties", true);
         schema.put("properties", Map.of(
+                "nsfPath", Map.of("type", "string"),
+                "q", Map.of("type", "string"),
+                "match", Map.of("type", "string"),
+                "elements", Map.of("type", "array", "items", Map.of("type", "object")),
                 "truncated", Map.of("type", "boolean"),
                 "returned", Map.of("type", "integer"),
-                "total", Map.of("type", "integer"),
-                "chars", Map.of("type", "integer"),
-                "part", Map.of("type", "integer"),
-                "parts", Map.of("type", "integer"),
-                "totalChars", Map.of("type", "integer"),
-                "text", Map.of("type", "string"),
-                "elements", Map.of("type", "array")));
+                "total", Map.of("type", "integer")));
+        return schema;
+    }
+
+    private static Map<String, Object> repoPathSchema() {
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        schema.put("additionalProperties", true);
+        schema.put("properties", Map.of(
+                "layout", Map.of("type", "string"),
+                "path", Map.of("type", "string"),
+                "folder", Map.of("type", "string"),
+                "folders", Map.of("type", "object")));
+        return schema;
+    }
+
+    private static Map<String, Object> repoStatusSchema() {
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        schema.put("additionalProperties", false);
+        schema.put("required", List.of("repoRoot", "databases"));
+        schema.put("properties", Map.of(
+                "repoRoot", Map.of("type", "string"),
+                "databases", Map.of("type", "array", "items", Map.of("type", "object"))));
+        return schema;
+    }
+
+    private static Map<String, Object> syncRepoSchema() {
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        schema.put("additionalProperties", false);
+        schema.put("required", List.of("databases"));
+        schema.put("properties", Map.of(
+                "databases", Map.of("type", "array", "items", Map.of("type", "object"))));
+        return schema;
+    }
+
+    private static Map<String, Object> debugKyberSchema() {
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        schema.put("additionalProperties", false);
+        schema.put("required", List.of("kyberBaseUrl", "last"));
+        schema.put("properties", Map.of(
+                "kyberBaseUrl", Map.of("type", "string"),
+                "last", Map.of("type", "object", "additionalProperties", true)));
+        return schema;
+    }
+
+    private static Map<String, Object> validateSchema() {
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        schema.put("additionalProperties", true);
+        schema.put("properties", Map.of(
+                "valid", Map.of("type", "boolean"),
+                "errors", Map.of("type", "array", "items", Map.of("type", "object")),
+                "repoSync", Map.of("type", "object")));
+        return schema;
+    }
+
+    private static Map<String, Object> designObjectSchema() {
+        Map<String, Object> properties = new LinkedHashMap<>();
+        properties.put("truncated", Map.of("type", "boolean"));
+        properties.put("returned", Map.of("type", "integer"));
+        properties.put("total", Map.of("type", "integer"));
+        properties.put("chars", Map.of("type", "integer"));
+        properties.put("part", Map.of("type", "integer"));
+        properties.put("parts", Map.of("type", "integer"));
+        properties.put("totalChars", Map.of("type", "integer"));
+        properties.put("text", Map.of("type", "string"));
+        properties.put("elements", Map.of("type", "array"));
+        properties.put("dxl", Map.of("type", "string"));
+        properties.put("name", Map.of("type", "string"));
+        properties.put("unid", Map.of("type", "string"));
+        properties.put("noteId", Map.of("type", "string"));
+        properties.put("repoSync", Map.of("type", "object"));
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        schema.put("additionalProperties", true);
+        schema.put("properties", properties);
         return schema;
     }
 
@@ -633,7 +755,9 @@ final class McpProtocol {
                 + "A result with truncated left out DXL because the body was large. "
                 + "Call get_design or export_design with part to read that body in pages. "
                 + "repo_path is where that DXL file belongs in a repository. "
-                + "When repoRoot is set, a design write refreshes that NSF in the repository, and sync_repo refreshes every NSF in repoNsf. "
+                + "repo_status reports synced trees under repoRoot. "
+                + "When repoRoot is set, a design write or delete refreshes that NSF in the repository, and sync_repo refreshes every NSF in repoNsf. "
+                + "debug_kyber shows the last Kyber path and HTTP status without tokens. "
                 + "Database delete, a full design import, and an ACL replacement are not tools. "
                 + "Prompts review_design and explain_design say how to read one element. "
                 + "Send the caller token as Authorization: Aldhani. ";
@@ -1027,7 +1151,8 @@ final class McpProtocol {
         return LOG_LEVELS.indexOf(level) >= LOG_LEVELS.indexOf(floor);
     }
 
-    private static Map<String, Object> callData(String tool, Map<String, Object> arguments, String event) {
+    private static Map<String, Object> callData(
+            String tool, Map<String, Object> arguments, String event, Map<String, Object> kyber) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("event", event);
         data.put("tool", tool);
@@ -1038,6 +1163,9 @@ final class McpProtocol {
         String nsf = Json.string(arguments.get("nsfPath"));
         if (nsf != null) {
             data.put("nsfPath", nsf);
+        }
+        if (kyber != null && !kyber.isEmpty()) {
+            data.put("kyber", kyber);
         }
         return data;
     }

@@ -19,9 +19,56 @@ final class RepoSync {
     private RepoSync() {
     }
 
+    /** Reads synced NSF trees under repoRoot without calling Kyber. */
+    static Map<String, Object> status(AldhaniConfig config) {
+        if (config.repoRoot == null) {
+            throw new IllegalArgumentException(
+                    "repoRoot is not set in aldhani.json; set it to an absolute directory then call repo_status again");
+        }
+        Path repoRoot = Path.of(config.repoRoot).toAbsolutePath().normalize();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("repoRoot", repoRoot.toString());
+        List<Object> databases = new ArrayList<>();
+        Path domino = repoRoot.resolve("domino");
+        if (Files.isDirectory(domino)) {
+            try (var dirs = Files.list(domino)) {
+                for (Path folder : dirs.filter(Files::isDirectory).sorted().toList()) {
+                    Path manifest = folder.resolve("manifest.json");
+                    if (!Files.isRegularFile(manifest)) {
+                        continue;
+                    }
+                    Map<String, Object> document = Json.object(Json.parse(Files.readString(manifest, StandardCharsets.UTF_8)));
+                    Map<String, Object> entry = new LinkedHashMap<>();
+                    String nsfPath = Json.string(document.get("nsfPath"));
+                    if (nsfPath != null) {
+                        entry.put("nsfPath", nsfPath);
+                    }
+                    Object replicaId = document.get("replicaId");
+                    if (replicaId != null) {
+                        entry.put("replicaId", replicaId);
+                    }
+                    Object count = document.get("elementCount");
+                    if (count instanceof Number number) {
+                        entry.put("elementCount", number.intValue());
+                    } else if (document.get("elements") instanceof List<?> list) {
+                        entry.put("elementCount", list.size());
+                    }
+                    entry.put("root", "domino/" + folder.getFileName());
+                    entry.put("syncedAt", Files.getLastModifiedTime(manifest).toInstant().toString());
+                    databases.add(entry);
+                }
+            } catch (IOException ex) {
+                throw new IllegalArgumentException("Could not read repoRoot: " + ex.getMessage());
+            }
+        }
+        result.put("databases", databases);
+        return result;
+    }
+
     static Map<String, Object> write(AldhaniConfig config, KyberGet kyber, String nsfPath) {
         if (config.repoRoot == null) {
-            throw new IllegalArgumentException("repoRoot is not set");
+            throw new IllegalArgumentException(
+                    "repoRoot is not set in aldhani.json; set it to an absolute directory then call sync_repo again");
         }
         String nsf = AldhaniConfig.normalizeNsf(nsfPath);
         if (!config.allows(nsf)) {

@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$version = "0.1.16"
+$version = "0.1.17"
 $servlet = $env:ALDHANI_SERVLET_JAR
 if (-not $servlet) {
     $servlet = "C:\Domino\osgi\rcp\eclipse\plugins\com.ibm.pvc.servlet_2.5.0.20260601-1307.jar"

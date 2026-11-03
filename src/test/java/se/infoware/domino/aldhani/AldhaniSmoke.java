@@ -21,7 +21,8 @@ import javax.net.ssl.X509TrustManager;
 /**
  * Calls a running Aldhani servlet. The sandbox aldhanitest.nsf is expected to
  * contain SmokeForm, SmokeView, the SmokeAgent* agents, and SmokeXPage.xsp.
- * When the write tools are listed, the run creates AldhaniSmokeProbe and deletes it.
+ * When the write tools are listed, the run creates AldhaniSmokeProbe, asserts get-after-put,
+ * validates a known-good form DXL, and deletes the probe.
  */
 public final class AldhaniSmoke {
     private static final String NSF = "aldhanitest.nsf";
@@ -116,7 +117,7 @@ public final class AldhaniSmoke {
         List<String> expected = new ArrayList<>(List.of(
                 "list_databases", "list_design", "get_design", "export_design", "inventory_design",
                 "search_design", "list_templates", "preview_starter", "get_content",
-                "repo_path", "sync_repo"));
+                "repo_path", "repo_status", "sync_repo", "debug_kyber"));
         boolean writes = toolNames.contains("create_design");
         if (writes) {
             expected.addAll(List.of(
@@ -126,11 +127,10 @@ public final class AldhaniSmoke {
                     "inherit_design", "delete_design", "validate_design"));
         }
         expect(expected, toolNames);
-        if (!Json.object(toolDefs.get(0)).containsKey("outputSchema")) {
-            throw new AssertionError("list_databases has no outputSchema");
-        }
-        if (Json.object(toolDefs.get(3)).containsKey("outputSchema")) {
-            throw new AssertionError("export_design should stay free of an output schema");
+        for (Object item : toolDefs) {
+            if (!Json.object(item).containsKey("outputSchema")) {
+                throw new AssertionError(Json.string(Json.object(item).get("name")) + " has no outputSchema");
+            }
         }
         assertToolHints(toolDefs, writes);
         Map<String, Object> layout = Json.object(Json.parse(tool(http, url, config.bearerToken, "repo_path", Map.of(
@@ -259,7 +259,7 @@ public final class AldhaniSmoke {
         if (!writes) {
             return;
         }
-        expect(true, toolDefs.size() == 25);
+        expect(true, toolDefs.size() == 27);
     }
 
     private static void assertListLimit(HttpClient http, String url, String token) {
@@ -338,6 +338,24 @@ public final class AldhaniSmoke {
             if (updated.error) {
                 throw new AssertionError("update_design failed: " + clip(updated.text));
             }
+            Map<String, Object> afterPut = Json.object(Json.parse(tool(http, url, token, "get_design", probe)));
+            expect("AldhaniSmokeProbe", afterPut.get("name"));
+            assertUnid("AldhaniSmokeProbe after put", afterPut.get("unid"));
+            String afterDxl = Json.string(afterPut.get("dxl"));
+            if (afterDxl == null || !afterDxl.contains("AldhaniSmokeProbe")) {
+                throw new AssertionError("get-after-put DXL does not name AldhaniSmokeProbe");
+            }
+            ToolReply goodValidate = toolCall(http, url, token, "validate_design", Map.of(
+                    "nsfPath", NSF,
+                    "elements", List.of(Map.of(
+                            "type", "forms",
+                            "name", "AldhaniSmokeProbe",
+                            "dxl", afterDxl))));
+            if (goodValidate.error) {
+                throw new AssertionError("validate_design (good) failed: " + clip(goodValidate.text));
+            }
+            Map<String, Object> good = Json.object(Json.parse(goodValidate.text));
+            expect(Boolean.TRUE, good.get("valid"));
             String aclBefore = singletonDxl(http, url, token, "acl");
             expectError(http, url, token, "update_design", Map.of("type", "acl", "dxl", "<acl/>", "nsfPath", NSF));
             expectError(http, url, token, "delete_design", Map.of("type", "dbicon", "nsfPath", NSF));
@@ -353,6 +371,17 @@ public final class AldhaniSmoke {
             expect(Boolean.FALSE, verdict.get("valid"));
             if (((List<?>) verdict.get("errors")).isEmpty()) {
                 throw new AssertionError("validate_design accepted broken DXL");
+            }
+            ToolReply debug = toolCall(http, url, token, "debug_kyber", Map.of());
+            if (debug.error) {
+                throw new AssertionError("debug_kyber failed: " + clip(debug.text));
+            }
+            Map<String, Object> dump = Json.object(Json.parse(debug.text));
+            if (Json.string(dump.get("kyberBaseUrl")) == null) {
+                throw new AssertionError("debug_kyber missing kyberBaseUrl");
+            }
+            if (dump.containsKey("bearer") || dump.containsKey("token") || dump.containsKey("password")) {
+                throw new AssertionError("debug_kyber leaked a secret field");
             }
         } catch (AssertionError ex) {
             failure = ex;
