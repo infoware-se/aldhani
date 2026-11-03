@@ -8,7 +8,7 @@ An MCP server for an AI agent that creates, reads, updates, and deletes Domino d
 
 Aldhani is an MCP server for HCL Domino design. It runs as an OSGi servlet on the Domino HTTP task and answers MCP at `POST /mcp`. Every design call is a Kyber call on DRAPI. Kyber remains the API that changes design. Writes are off unless `allowWrite` is true.
 
-Version 0.1.11. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
+Version 0.1.14. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
 
 Design API: [Kyber](https://github.com/infoware-se/kyber). Releases: [jar attachments](https://github.com/infoware-se/aldhani/releases). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.md](SECURITY.md).
 
@@ -47,13 +47,13 @@ The allowlist is applied before Kyber is called. A path that contains `..`, star
 
 ## What this version leaves to Kyber
 
-With `allowWrite` false, Aldhani only reads. With `allowWrite` true, `create_database`, `create_design`, `update_design`, `delete_design`, and `validate_design` call the matching Kyber route. `create_database` creates a missing NSF that is already on `allowedNsf`. `validate_design` writes nothing. Database delete, a full design import, and replacing the ACL stay in Kyber and are not tools.
+With `allowWrite` false, Aldhani only reads (including `search_design`, `get_design` by `unid`/`noteId`, `list_templates`, `preview_starter`, and `get_content`). With `allowWrite` true, database tools (`create_database`, `create_database_from_template`, `set_db_title`, `set_kyber_enabled`) and design tools (`create_design` with optional `template`, `update_design`, `patch_design`, `copy_design`, `rename_design`, `update_content`, `recompile_lotusscript`, `inherit_design`, `delete_design`, `validate_design`) call the matching Kyber route. Residual notes use type `designnote`. `validate_design` writes nothing. Database delete, a full design import, and replacing the ACL stay in Kyber and are not tools.
 
-A tool result is text. A body over 100 000 characters is returned as JSON with `truncated` and `chars`, plus `name` and `unid` when the payload has them. The DXL is left out, so the result is never cut in the middle of a string. `get_design` and `export_design` take `part`, a zero-based page of 40 000 characters of the raw body. `list_design` takes an optional `limit` and keeps the first rows. Prefer that, then `get_design` for one element.
+A tool result is text. A body over 100 000 characters is returned as JSON with `truncated` and `chars`, plus `name` and `unid` when the payload has them. The DXL is left out, so the result is never cut in the middle of a string. `get_design` and `export_design` take `part`, a zero-based page of 40 000 characters of the raw body. `list_design` and `search_design` take an optional `limit`. Prefer `search_design` or `inventory_design`, then `get_design` for one element.
 
 ## Improvements
 
-Kyber is the design API. Design capabilities that agents need (search, copy, rename, get by UNID, templates, binary resources, recompile, and the rest) are tracked in [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements). This section is Aldhani's own backlog: MCP, allowlist, writes policy, repo sync, and smoke. Aldhani only wraps what Kyber exposes.
+Kyber is the design API. This section is Aldhani's own backlog: MCP, allowlist, writes policy, repo sync, smoke, and wrapping Kyber helpers that agents still invent from inventory loops. Aldhani only wraps what Kyber exposes. Remaining Kyber-side work is tracked in [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements).
 
 Bearer login. Aldhani already issues an RS256 access token, and `POST /mcp` accepts `Authorization: Bearer` when the token is one it signed. Domino's HTTP task swallows that header and returns the login page until the internet site trusts Aldhani as an OIDC provider and has Bearer authentication enabled. The discovery document Domino reads is `GET /oauth/.well-known/openid-configuration`, and the key is `GET /oauth/jwks`. Until that trust is in place, clients keep using `Authorization: Aldhani`.
 
@@ -65,17 +65,19 @@ A write probe that sends real DXL. The smoke run creates `AldhaniSmokeProbe` fro
 
 Writes per database. `allowWrite` is one switch for every allowlisted NSF, so a smoke run with writes on creates and deletes `AldhaniSmokeProbe` in `aldhanitest.nsf`. A switch on the sandbox alone would leave the application databases unchanged. `repoNsf` already limits which trees are written to disk. Per-NSF `allowWrite` (or write grants) would match that model.
 
-Missing design tools (high value). Agents still invent workflows from `inventory_design` and `get_design` for jobs that deserve a tool: `search_design` (name or substring across collections), `copy_design` (duplicate, optionally to another allowlisted NSF), `rename_design` (without delete-plus-create), `diff_design` (live DXL vs proposed or vs another note), `list_fields` and `list_columns` (form/view inventory without full DXL), `get_design_summary` (aliases, forms used, agent schedule), and `get_design` by `unid` or `noteId` (names and note ids churn after update).
+Shipped against Kyber 0.26+. Helpers for search/lookup/copy/rename/patch, templates/binary/compile, database title/category/fromTemplate/inherit, and typed `designnote` CRUD wrap the matching Kyber routes.
 
-Missing design tools (medium value). `patch_design` (partial replace), `list_agents_schedule`, `set_dbicon_image` (icon from image bytes or path), `import_design_element` (one DXL create-or-replace, not a full NSF import), `list_templates` / create from a named template in `kyber.nsf` (empty create only picks the first alphabetical starter), typed CRUD for bulk-only `designnote` (`_designnotes`), binary-friendly put/get for images, files, and jars without hand-built DXL, `recompile_lotusscript` after a script-library round trip, `set_kyber_enabled` on an existing NSF (today that category is set only on create/import), and surfacing Kyber's `databases.more` so agents see that allowlist filtering hid other files.
+Missing design tools (high value). `diff_design` (live DXL vs proposed or vs another note), `list_fields` and `list_columns` (form/view inventory without full DXL), and `get_design_summary` (aliases, forms used, agent schedule).
 
-Missing design tools (lower value, still worth tracking). `repo_status` (live inventory and `unid` vs `manifest.json` / Package Explorer drift), expose Kyber export `skipped` notes, `set_db_title` without rewriting all of `applicationproperties`, structured ACL **read** as JSON (roles and entries; replace stays blocked), Domino design inherit / refresh from an NTF when Kyber supports it, dry-run create that names which `kyber.nsf` template would be copied, design-note undo or version history, `preview_starter` DXL before create, formula-only validate separate from DXL `validate_design`, list private vs shared design where Domino distinguishes them, compare inventories across two allowlisted NSFs, and chunked or resumable write for DXL larger than the MCP truncation window (create/update today assume one body).
+Missing design tools (medium value). `list_agents_schedule`, `import_design_element` (one DXL create-or-replace, not a full NSF import), and surfacing Kyber's `databases.more` so agents see that allowlist filtering hid other files.
+
+Missing design tools (lower value, still worth tracking). `repo_status` (live inventory and `unid` vs `manifest.json` / Package Explorer drift), expose Kyber export `skipped` notes, structured ACL **read** as JSON (roles and entries; replace stays blocked), design-note undo or version history, formula-only validate separate from DXL `validate_design`, list private vs shared design where Domino distinguishes them, compare inventories across two allowlisted NSFs, `/named` for titles with parentheses, and chunked or resumable write for DXL larger than the MCP truncation window (create/update today assume one body).
 
 Repo sync polish. `sync_repo` replaces a whole NSF tree; a per-element refresh after create/update already runs when `repoNsf` matches, but agents still hand-edit stale `-noteId` file names when a write races or `repoRoot` is unset. Optional `repoRoot` relative to the MCP client workspace, a tool that returns the last sync time and element counts, and refusing `sync_repo` when `repoRoot` is missing with an actionable message would help. Stale DXL left on disk after `delete_design` should be removed from the tree when sync runs.
 
 MCP and agent UX. Prompts `review_design`, `explain_design`, and `create_element` exist but many hosts barely surface prompts; tool descriptions could embed the same workflows. `outputSchema` is only rich on `list_databases`; other tools could declare schemas. Resources are bare `aldhani://<nsf>` JSON; a resource that lists collection types, or inventory without a tool call, would cut round trips. Completions cover design `type`; completing `nsfPath` from `allowedNsf` and element `name` from the last list would reduce typos. Progress notifications on long `export_design` / `sync_repo` calls. Logging already exists; a `debug` dump of the Kyber path and status (never tokens) would speed support. Session-scoped default `nsfPath` after the agent picks a database.
 
-Kyber dependencies. The design tools listed above that need new Kyber routes wait on Kyber's Improvements. Until those routes exist, document the workaround (`inventory_design` + `get_design` loops) in the tool instructions.
+Kyber dependencies. The remaining tools above that need routes already present in Kyber 0.26 should be wrapped next. Anything still waiting on new Kyber work stays in [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements).
 
 Keep out of tools. Database delete, full design import or replace, and ACL replace or delete stay unavailable on purpose. Application documents, DQL, running agents, server console, compact, quota, and user administration stay outside this design MCP; another product can cover those.
 
@@ -94,7 +96,7 @@ DRAPI's data port can stay unpublished. Aldhani calls it from the same machine. 
 .\build.ps1
 ```
 
-The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.11.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
+The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.14.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
 
 `target\` is gitignored.
 
@@ -102,8 +104,8 @@ The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `t
 
 The HTTP task loads the feature only when it is listed in `platform.xml`. The applications site on Domino uses the `USER-EXCLUDE` policy, and Equinox reads the feature as a directory, so copying a jar into `plugins` is not enough. `install.ps1` does three things:
 
-- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.11.jar`
-- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.11\`
+- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.14.jar`
+- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.14\`
 - adds the feature under the applications site in `domino\workspace\.config\org.eclipse.update\platform.xml`
 
 Stop HTTP first. On shutdown the HTTP task rewrites `platform.xml` from memory, so an edit made while HTTP is running is lost. `tell http restart` does not reload this configuration.
@@ -132,7 +134,7 @@ Copy `aldhani.json.example` to `<Domino data>\aldhani.json`. `ALDHANI_CONFIG` ca
 | `bearerToken` | Token the MCP client must send. |
 | `allowedNsf` | NSF paths Kyber may be asked about. At least one. |
 | `insecureTls` | Trust DRAPI's certificate and skip hostname checks. Use this for a private certificate on the same server. |
-| `allowWrite` | When true, list the four write tools. Missing or false keeps an existing install read-only. |
+| `allowWrite` | When true, list the write tools (create/update/patch/copy/rename/delete/validate, plus create_database). Missing or false keeps an existing install read-only. |
 | `repoRoot` | Optional directory. A design write refreshes that NSF here, and `sync_repo` refreshes every NSF in `repoNsf`. |
 | `repoNsf` | Optional list of allowlisted NSFs to write under `repoRoot`. Missing means every allowlisted NSF. |
 | `publicBaseUrl` | Optional HTTPS origin used in OAuth metadata, with no trailing slash. When it is missing, Aldhani uses the request host. |
@@ -242,6 +244,7 @@ Lists one collection in an allowed NSF. `type` is required. Singular and plural 
 | `webcontent` | WebContent files |
 | `xpages` | XPages |
 | `xpagesresources` | XPages project files |
+| `designnotes` | Residual named design notes |
 
 A database note is not a collection. Read it with `get_design`.
 
@@ -251,6 +254,7 @@ Returns one Kyber JSON object, including its DXL.
 
 - For a collection, `name` is the element name. XPages resource paths may contain a slash. `part` reads a large body in pages of raw text. The first page is `0`.
 - For a database note, omit `name`. `type` is one of `about`, `acl`, `applicationproperties`, `databasescript`, `dbicon`, `using`, `xspproperties`.
+- Or pass `unid` or `noteId` (not both, and not with `type`/`name`) to call Kyber `GET /lookup`. `includeDxl` defaults to true.
 
 ### export_design
 
@@ -260,21 +264,46 @@ Exports the design of one allowed NSF as DXL. The body is large. Prefer `invento
 
 Lists every design element in one allowed NSF without DXL. Each row has `type`, `name` when present, `noteId`, and `unid`. Prefer this before `get_design`.
 
+### search_design
+
+Searches design names and optionally DXL via Kyber `GET /search`. `q` is required. Optional `types` (comma-separated or a string list), `match` (`name`, `dxl`, or `both`), and `limit` (at most 200).
+
+### list_templates
+
+Lists starter names for one design type via Kyber `GET /templates`. Optional `kind` for agents, script libraries, and Java sources. `nsfPath` is usually omitted (Kyber uses KeepConfig / `kyber.nsf`).
+
+### preview_starter
+
+Resolves empty-create starter DXL via `POST /defaults/preview` without writing. Optional `template`, `name`, and `kind`.
+
+### get_content
+
+Returns binary content as `contentBase64` via `GET /content`. `type` is `image`, `fileresource`, `jar`, or `dbicon`. `name` is required except for `dbicon`.
+
 ### repo_path
 
 Returns the Package Explorer path for a design file. It does not call Kyber. Omit `type` to list every folder. `nsfPath` and `replicaId` are set together and produce `domino/<nsfPath>-<replicaId>`. `noteId` makes the file `<name>-<noteId>.dxl`. Singular and plural type names both work. Java sources keep their package under `Code/Java`. An XPages resource under `WEB-INF` is `WebContent/WEB-INF`.
 
 ### sync_repo
 
-Reads `GET /export` and writes every element under `repoRoot`, replacing that NSF's folder. The database icon is `Resources/Images/$DBIcon-<noteId>.dxl`. Omit `nsfPath` to refresh every NSF in `repoNsf`. `create_design`, `update_design`, and `delete_design` do the same refresh for the NSF they changed, when it is in `repoNsf`. `validate_design` does not.
+Reads `GET /export` and writes every element under `repoRoot`, replacing that NSF's folder. The database icon is `Resources/Images/$DBIcon-<noteId>.dxl`. Omit `nsfPath` to refresh every NSF in `repoNsf`. Design writes that change an NSF do the same refresh when that NSF is in `repoNsf`. `validate_design` does not.
 
-### create_database, create_design, update_design, delete_design, validate_design
+### create_database, create_database_from_template, set_db_title, set_kyber_enabled, create_design, update_design, patch_design, copy_design, rename_design, update_content, recompile_lotusscript, inherit_design, delete_design, validate_design
 
 Listed only when `allowWrite` is true. They call Kyber as `kyberUser`.
 
 - `create_database` posts to `POST /database`. `nsfPath` must be on `allowedNsf`. `dbTitle` sets the title. Kyber sets the category `KyberEnabled` and gives the caller Manager. An existing file is left unchanged. Database delete is not a tool.
-- `create_design` posts to the collection. `name` is required. Omit `dxl` to copy Kyber's starter. Agents, script libraries, and Java sources take `kind`. `about`, `using`, `databasescript`, and `xspproperties` can be created. `acl`, `applicationproperties`, and `dbicon` cannot.
+- `create_database_from_template` posts to `POST /database/fromTemplate`. Target `nsfPath` must be allowlisted. `templateNsfPath` is path-safe but need not be allowlisted.
+- `set_db_title` puts `dbTitle` via `PUT /database`.
+- `set_kyber_enabled` puts `enabled` via `PUT /database/category`.
+- `create_design` posts to the collection (including `designnotes`). `name` is required. Omit `dxl` to copy Kyber's starter. `template` selects a named starter from `list_templates` (not with `dxl`). Agents, script libraries, and Java sources take `kind`. `about`, `using`, `databasescript`, and `xspproperties` can be created. `acl`, `applicationproperties`, and `dbicon` cannot.
 - `update_design` puts DXL onto an existing element or database note. `acl` cannot be replaced. `applicationproperties` and `dbicon` can.
+- `patch_design` patches `comment` and/or `alias` via `PATCH /patch` without replacing the DXL.
+- `copy_design` posts to `POST /copy`. `toNsfPath` may be another allowlisted NSF.
+- `rename_design` posts to `POST /rename`.
+- `update_content` puts `contentBase64` via `PUT /content` for `image`, `fileresource`, `jar`, or `dbicon`.
+- `recompile_lotusscript` posts to `POST /compile`.
+- `inherit_design` posts to `POST /database/inherit`. Optional `templateServer`.
 - `delete_design` deletes a named element, or `about`, `using`, `databasescript`, or `xspproperties`. `acl`, `applicationproperties`, and `dbicon` cannot be deleted.
 - `validate_design` posts `{elements:[{type, name, dxl, delete}]}` to `POST /validate` and writes nothing. `dxl` is required unless `delete` is true.
 
