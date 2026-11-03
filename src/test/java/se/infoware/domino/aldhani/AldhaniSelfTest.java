@@ -18,6 +18,8 @@ public final class AldhaniSelfTest {
         writesThroughKyberWhenAllowed();
         wrapsKyberHelpers();
         grantsWritesPerNsf();
+        namesAllowlistedPathsWhenNsfIsMissing();
+        readsTypesAndInventoryResources();
         speaksMcp();
         speaksTheCurrentProtocol();
         readsANestedDatabaseResource();
@@ -341,6 +343,47 @@ public final class AldhaniSelfTest {
         expect(true, tools.call("create_design", Map.of(
                 "type", "form", "name", "Main", "nsfPath", "app.nsf")).error());
         expect(0L, kyber.calls.stream().filter(call -> call.contains("app.nsf")).count());
+    }
+
+    private static void namesAllowlistedPathsWhenNsfIsMissing() {
+        DesignTools tools = new DesignTools(AldhaniConfig.parse("""
+                {
+                  "kyberBaseUrl": "https://domino.example",
+                  "kyberUser": "reader",
+                  "kyberPassword": "secret",
+                  "bearerToken": "token",
+                  "allowedNsf": ["aldhanitest.nsf", "app.nsf"]
+                }"""), path -> {
+            throw new AssertionError(path);
+        });
+        DesignTools.ToolResult result = tools.call("list_design", Map.of("type", "form"));
+        expect(true, result.error());
+        expect(true, result.text().contains("aldhanitest.nsf"));
+        expect(true, result.text().contains("app.nsf"));
+    }
+
+    private static void readsTypesAndInventoryResources() {
+        McpProtocol protocol = new McpProtocol(new DesignTools(sample(), path -> {
+            if (path.startsWith("/api/kyber-v1/export")) {
+                return """
+                        {"nsfPath":"aldhanitest.nsf","replicaId":"AABBCCDDEEFF0011","elements":[
+                          {"type":"form","name":"Main","noteId":"1","unid":"AABBCCDDEEFF00112233445566778899","dxl":"<form/>"}
+                        ]}""";
+            }
+            throw new AssertionError(path);
+        }));
+        McpProtocol.HttpReply types = protocol.handle("""
+                {"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"aldhani://types"}}""");
+        Map<String, Object> typesBody = Json.object(Json.object(Json.parse(types.body())).get("result"));
+        String typesText = Json.string(Json.object(((List<?>) typesBody.get("contents")).get(0)).get("text"));
+        Map<String, Object> typed = Json.object(Json.parse(typesText));
+        expect(true, ((List<?>) typed.get("collections")).contains("forms"));
+        expect(true, ((List<?>) typed.get("singletons")).contains("acl"));
+        McpProtocol.HttpReply inventory = protocol.handle("""
+                {"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"aldhani://aldhanitest.nsf/inventory"}}""");
+        Map<String, Object> inventoryBody = Json.object(Json.object(Json.parse(inventory.body())).get("result"));
+        String inventoryText = Json.string(Json.object(((List<?>) inventoryBody.get("contents")).get(0)).get("text"));
+        expect("Main", Json.string(Json.object(((List<?>) Json.object(Json.parse(inventoryText)).get("elements")).get(0)).get("name")));
     }
 
     private static void speaksMcp() {

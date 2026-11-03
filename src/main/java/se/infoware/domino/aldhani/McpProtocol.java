@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 final class McpProtocol {
-    static final String VERSION = "0.1.15";
+    static final String VERSION = "0.1.16";
     private static final String LATEST_PROTOCOL = "2025-11-25";
     private static final Set<String> PROTOCOL_VERSIONS = Set.of(
             "2024-11-05",
@@ -29,6 +29,7 @@ final class McpProtocol {
     private final CallTracker tracker = new CallTracker();
     private final AtomicReference<String> logLevel = new AtomicReference<>("info");
     private final ConcurrentHashMap<String, String> sessionLevels = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> sessionNsf = new ConcurrentHashMap<>();
     private final ThreadLocal<List<Map<String, Object>>> notes = new ThreadLocal<>();
     private final ThreadLocal<String> session = new ThreadLocal<>();
 
@@ -174,13 +175,22 @@ final class McpProtocol {
             return missing;
         }
         Object raw = params.get("arguments");
-        Map<String, Object> arguments = raw instanceof Map<?, ?> ? Json.object(raw) : Map.of();
+        Map<String, Object> arguments = new LinkedHashMap<>(
+                raw instanceof Map<?, ?> ? Json.object(raw) : Map.of());
+        applySessionNsf(arguments);
         Object progressToken = progressToken(params);
         log("info", "aldhani", callData(name, arguments, "started"));
         if (progressToken != null) {
             progress(progressToken, 0, 1, "Started " + name);
+            DesignTools.PROGRESS.set(new DesignTools.Progress(update ->
+                    progress(progressToken, update.completed(), Math.max(1, update.total()), update.message())));
         }
-        DesignTools.ToolResult outcome = tools.call(name, arguments);
+        DesignTools.ToolResult outcome;
+        try {
+            outcome = tools.call(name, arguments);
+        } finally {
+            DesignTools.PROGRESS.remove();
+        }
         if (Thread.currentThread().isInterrupted()) {
             return Map.of();
         }
@@ -188,6 +198,9 @@ final class McpProtocol {
             progress(progressToken, 1, 1, (outcome.error() ? "Failed " : "Finished ") + name);
         }
         log(outcome.error() ? "error" : "info", "aldhani", callData(name, arguments, outcome.error() ? "failed" : "finished"));
+        if (!outcome.error()) {
+            rememberSessionNsf(arguments, outcome.text());
+        }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("content", List.of(Map.of("type", "text", "text", outcome.text())));
         result.put("isError", outcome.error());
@@ -202,6 +215,47 @@ final class McpProtocol {
             }
         }
         return result;
+    }
+
+    private void applySessionNsf(Map<String, Object> arguments) {
+        String given = Json.string(arguments.get("nsfPath"));
+        if (given != null && !given.isBlank()) {
+            return;
+        }
+        String sid = session.get();
+        if (sid == null || sid.isBlank()) {
+            return;
+        }
+        String remembered = sessionNsf.get(sid);
+        if (remembered != null && !remembered.isBlank()) {
+            arguments.put("nsfPath", remembered);
+        }
+    }
+
+    private void rememberSessionNsf(Map<String, Object> arguments, String resultText) {
+        String sid = session.get();
+        if (sid == null || sid.isBlank()) {
+            return;
+        }
+        String nsf = Json.string(arguments.get("nsfPath"));
+        if (nsf == null || nsf.isBlank()) {
+            try {
+                Object parsed = Json.parse(resultText);
+                if (parsed instanceof Map<?, ?> map) {
+                    nsf = Json.string(Json.object(map).get("nsfPath"));
+                }
+            } catch (IllegalArgumentException ignored) {
+                return;
+            }
+        }
+        if (nsf == null || nsf.isBlank()) {
+            return;
+        }
+        try {
+            sessionNsf.put(sid, AldhaniConfig.normalizeNsf(nsf));
+        } catch (IllegalArgumentException ignored) {
+            // Do not remember a path the allowlist would reject.
+        }
     }
 
     private List<Map<String, Object>> toolDefinitions() {
@@ -573,6 +627,8 @@ final class McpProtocol {
         String text = "Aldhani is the MCP server for Domino design. Every design call goes to Kyber. "
                 + "Read with inventory_design, list_design, or search_design, then get_design for one element. "
                 + "get_design accepts type and name, or unid or noteId alone. "
+                + "When several databases are allowlisted, pass nsfPath or reuse the session default from the last call that named one. "
+                + "Resources: aldhani://types lists collections; aldhani://<nsf>/inventory is inventory without a tool call. "
                 + "list_templates and preview_starter show empty-create starters; get_content reads image, file, jar, or dbicon bytes. "
                 + "A result with truncated left out DXL because the body was large. "
                 + "Call get_design or export_design with part to read that body in pages. "
@@ -594,6 +650,12 @@ final class McpProtocol {
 
     private List<Map<String, Object>> resources() {
         List<Map<String, Object>> listed = new ArrayList<>();
+        Map<String, Object> types = new LinkedHashMap<>();
+        types.put("uri", "aldhani://types");
+        types.put("name", "design-types");
+        types.put("mimeType", "application/json");
+        types.put("description", "Kyber design collections and database notes Aldhani accepts as type");
+        listed.add(types);
         for (String nsf : tools.allowedNsf()) {
             Map<String, Object> resource = new LinkedHashMap<>();
             resource.put("uri", "aldhani://" + nsf);
@@ -601,12 +663,20 @@ final class McpProtocol {
             resource.put("mimeType", "application/json");
             resource.put("description", "Allowlisted Domino database");
             listed.add(resource);
+            Map<String, Object> inventory = new LinkedHashMap<>();
+            inventory.put("uri", "aldhani://" + nsf + "/inventory");
+            inventory.put("name", nsf + "-inventory");
+            inventory.put("mimeType", "application/json");
+            inventory.put("description", "Design inventory for " + nsf + " without DXL");
+            listed.add(inventory);
         }
         return listed;
     }
 
     private static List<Map<String, Object>> resourceTemplates() {
         return List.of(
+                template("aldhani://{nsfPath}/inventory", "Design inventory",
+                        "Every design element in an allowlisted NSF without DXL."),
                 template("aldhani://{nsfPath}/{type}", "Design collection",
                         "One Kyber collection or the element names in an allowlisted NSF."),
                 template("aldhani://{nsfPath}/{type}/{name}", "Design element",
@@ -628,38 +698,50 @@ final class McpProtocol {
             throw new IllegalArgumentException("uri must start with aldhani://");
         }
         String rest = uri.substring("aldhani://".length());
-        String nsf = longestAllowlisted(rest);
-        if (nsf == null) {
-            throw new IllegalArgumentException("uri needs an allowlisted NSF path");
-        }
-        String tail = rest.substring(nsf.length());
-        if (tail.startsWith("/")) {
-            tail = tail.substring(1);
-        }
         String text;
-        if (tail.isEmpty()) {
-            DesignTools.ToolResult listed = tools.call("list_databases", Map.of());
-            if (listed.error()) {
-                throw new IllegalArgumentException(listed.text());
-            }
-            text = oneDatabase(listed.text(), nsf);
+        if ("types".equalsIgnoreCase(rest)) {
+            text = Json.write(Map.of(
+                    "collections", DesignTools.collections(),
+                    "singletons", DesignTools.singletons()));
         } else {
-            String[] pieces = tail.split("/", 2);
-            Map<String, Object> arguments = new LinkedHashMap<>();
-            arguments.put("nsfPath", nsf);
-            arguments.put("type", pieces[0]);
-            String tool = "list_design";
-            if (pieces.length == 2) {
-                tool = "get_design";
-                arguments.put("name", pieces[1]);
-            } else if (DesignTools.singletons().contains(AldhaniConfig.lower(pieces[0]))) {
-                tool = "get_design";
+            String nsf = longestAllowlisted(rest);
+            if (nsf == null) {
+                throw new IllegalArgumentException("uri needs an allowlisted NSF path or aldhani://types");
             }
-            DesignTools.ToolResult outcome = tools.call(tool, arguments);
-            if (outcome.error()) {
-                throw new IllegalArgumentException(outcome.text());
+            String tail = rest.substring(nsf.length());
+            if (tail.startsWith("/")) {
+                tail = tail.substring(1);
             }
-            text = outcome.text();
+            if (tail.isEmpty()) {
+                DesignTools.ToolResult listed = tools.call("list_databases", Map.of());
+                if (listed.error()) {
+                    throw new IllegalArgumentException(listed.text());
+                }
+                text = oneDatabase(listed.text(), nsf);
+            } else if ("inventory".equalsIgnoreCase(tail)) {
+                DesignTools.ToolResult inventory = tools.call("inventory_design", Map.of("nsfPath", nsf));
+                if (inventory.error()) {
+                    throw new IllegalArgumentException(inventory.text());
+                }
+                text = inventory.text();
+            } else {
+                String[] pieces = tail.split("/", 2);
+                Map<String, Object> arguments = new LinkedHashMap<>();
+                arguments.put("nsfPath", nsf);
+                arguments.put("type", pieces[0]);
+                String tool = "list_design";
+                if (pieces.length == 2) {
+                    tool = "get_design";
+                    arguments.put("name", pieces[1]);
+                } else if (DesignTools.singletons().contains(AldhaniConfig.lower(pieces[0]))) {
+                    tool = "get_design";
+                }
+                DesignTools.ToolResult outcome = tools.call(tool, arguments);
+                if (outcome.error()) {
+                    throw new IllegalArgumentException(outcome.text());
+                }
+                text = outcome.text();
+            }
         }
         Map<String, Object> content = new LinkedHashMap<>();
         content.put("uri", uri);
@@ -725,19 +807,35 @@ final class McpProtocol {
         if ("type".equals(name)) {
             values.addAll(DesignTools.collections());
             values.addAll(DesignTools.singletons());
-        } else if ("nsfPath".equals(name)) {
+        } else if ("nsfPath".equals(name) || "toNsfPath".equals(name) || "templateNsfPath".equals(name)) {
             values.addAll(tools.allowedNsf());
-        } else if ("name".equals(name)) {
+        } else if ("fileType".equals(name)) {
+            values.addAll(List.of("database", "template", "replica_candidate", "template_candidate"));
+        } else if ("match".equals(name)) {
+            values.addAll(List.of("name", "dxl", "both"));
+        } else if ("name".equals(name) || "toName".equals(name) || "newName".equals(name) || "template".equals(name)) {
             String type = Json.string(given.get("type"));
             if (type != null && !type.isBlank()) {
-                Map<String, Object> call = new LinkedHashMap<>();
-                call.put("type", type);
-                if (given.get("nsfPath") != null) {
-                    call.put("nsfPath", given.get("nsfPath"));
-                }
-                DesignTools.ToolResult listed = tools.call("list_design", call);
-                if (!listed.error()) {
-                    values.addAll(elementNames(listed.text()));
+                if ("template".equals(name)) {
+                    Map<String, Object> call = new LinkedHashMap<>();
+                    call.put("type", type);
+                    if (given.get("kind") != null) {
+                        call.put("kind", given.get("kind"));
+                    }
+                    DesignTools.ToolResult listed = tools.call("list_templates", call);
+                    if (!listed.error()) {
+                        values.addAll(templateNames(listed.text()));
+                    }
+                } else {
+                    Map<String, Object> call = new LinkedHashMap<>();
+                    call.put("type", type);
+                    if (given.get("nsfPath") != null) {
+                        call.put("nsfPath", given.get("nsfPath"));
+                    }
+                    DesignTools.ToolResult listed = tools.call("list_design", call);
+                    if (!listed.error()) {
+                        values.addAll(elementNames(listed.text()));
+                    }
                 }
             }
         }
@@ -761,19 +859,36 @@ final class McpProtocol {
     }
 
     private static List<String> elementNames(String text) {
+        return stringFieldList(text, "elements", "name");
+    }
+
+    private static List<String> templateNames(String text) {
+        List<String> names = stringFieldList(text, "templates", "name");
+        if (!names.isEmpty()) {
+            return names;
+        }
+        return stringFieldList(text, "elements", "name");
+    }
+
+    private static List<String> stringFieldList(String text, String arrayKey, String field) {
         List<String> names = new ArrayList<>();
         try {
             Object parsed = Json.parse(text);
             if (!(parsed instanceof Map<?, ?> map)) {
                 return names;
             }
-            Object raw = Json.object(map).get("elements");
+            Object raw = Json.object(map).get(arrayKey);
             if (!(raw instanceof List<?> elements)) {
                 return names;
             }
             for (Object item : elements) {
                 if (item instanceof Map<?, ?> element) {
-                    String name = Json.string(Json.object(element).get("name"));
+                    String name = Json.string(Json.object(element).get(field));
+                    if (name != null) {
+                        names.add(name);
+                    }
+                } else {
+                    String name = Json.string(item);
                     if (name != null) {
                         names.add(name);
                     }
