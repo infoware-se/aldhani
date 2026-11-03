@@ -60,13 +60,25 @@ public final class AldhaniSmoke {
         }
         Reply resources = call(http, url, config.bearerToken, "resources/list", Map.of());
         boolean sawDatabase = false;
+        boolean sawTypes = false;
+        boolean sawInventory = false;
         for (Object item : (List<?>) Json.object(result(resources)).get("resources")) {
-            if (("aldhani://" + NSF).equals(Json.object(item).get("uri"))) {
+            String uri = Json.string(Json.object(item).get("uri"));
+            if (("aldhani://" + NSF).equals(uri)) {
                 sawDatabase = true;
+            }
+            if ("aldhani://types".equals(uri)) {
+                sawTypes = true;
+            }
+            if (("aldhani://" + NSF + "/inventory").equals(uri)) {
+                sawInventory = true;
             }
         }
         if (!sawDatabase) {
             throw new AssertionError("allowlisted database is not a resource");
+        }
+        if (!sawTypes || !sawInventory) {
+            throw new AssertionError("types or inventory resource is missing");
         }
         Reply completion = call(http, url, config.bearerToken, "completion/complete", Map.of(
                 "argument", Map.of("name", "type", "value", "fo")));

@@ -8,7 +8,7 @@ An MCP server for an AI agent that creates, reads, updates, and deletes Domino d
 
 Aldhani is an MCP server for HCL Domino design. It runs as an OSGi servlet on the Domino HTTP task and answers MCP at `POST /mcp`. Every design call is a Kyber call on DRAPI. Kyber remains the API that changes design. Writes are off unless `allowWrite` is true.
 
-Version 0.1.15. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
+Version 0.1.16. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
 
 Design API: [Kyber](https://github.com/infoware-se/kyber). Releases: [jar attachments](https://github.com/infoware-se/aldhani/releases). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.md](SECURITY.md).
 
@@ -74,8 +74,6 @@ Kyber is the design API. This section is Aldhani's own backlog: MCP, allowlist, 
 
 Bearer login. Aldhani already issues an RS256 access token, and `POST /mcp` accepts `Authorization: Bearer` when the token is one it signed. Domino's HTTP task swallows that header and returns the login page until the internet site trusts Aldhani as an OIDC provider and has Bearer authentication enabled. The discovery document Domino reads is `GET /oauth/.well-known/openid-configuration`, and the key is `GET /oauth/jwks`. Until that trust is in place, clients keep using `Authorization: Aldhani`.
 
-A call that omits `nsfPath` when several databases are allowlisted. `onlyNsf()` returns nothing in that case and the call errors. The self-test never takes that path. A clearer error that names the allowlisted paths, or a required `nsfPath` in every tool schema when more than one NSF is listed, would stop agents guessing.
-
 A write probe that sends real DXL. The smoke run creates `AldhaniSmokeProbe` from `<form/>` and deletes it. That shows the route accepts a body. It does not show that a design note survives a round trip. Prefer a get-after-put assertion and a `validate_design` round trip on a known good form.
 
 Shipped against Kyber 0.26+. Helpers for search/lookup/copy/rename/patch, templates/binary/compile, database title/category/fromTemplate/inherit, typed `designnote` CRUD, `databases.more`, ACL `entries`/`roles` on `get_design` type `acl`, `/named` for parenthesis titles, and per-NSF `writeNsf` grants wrap the matching Kyber routes and Aldhani policy.
@@ -88,7 +86,7 @@ Missing design tools (lower value, still worth tracking). `repo_status`, expose 
 
 Repo sync polish. `sync_repo` replaces a whole NSF tree; a per-element refresh after create/update already runs when `repoNsf` matches, but agents still hand-edit stale `-noteId` file names when a write races or `repoRoot` is unset. Optional `repoRoot` relative to the MCP client workspace, a tool that returns the last sync time and element counts, and refusing `sync_repo` when `repoRoot` is missing with an actionable message would help. Stale DXL left on disk after `delete_design` should be removed from the tree when sync runs.
 
-MCP and agent UX. Prompts `review_design`, `explain_design`, and `create_element` exist but many hosts barely surface prompts; tool descriptions could embed the same workflows. `outputSchema` is only rich on `list_databases`; other tools could declare schemas. Resources are bare `aldhani://<nsf>` JSON; a resource that lists collection types, or inventory without a tool call, would cut round trips. Completions cover design `type`; completing `nsfPath` from `allowedNsf` and element `name` from the last list would reduce typos. Progress notifications on long `export_design` / `sync_repo` calls. Logging already exists; a `debug` dump of the Kyber path and status (never tokens) would speed support. Session-scoped default `nsfPath` after the agent picks a database.
+MCP and agent UX. Prompts exist but many hosts barely surface them. `outputSchema` is richest on `list_databases`. Completions cover `type`, `nsfPath`, element `name`, `fileType`, `match`, and template names. Resources include `aldhani://types` and `aldhani://<nsf>/inventory`. Session-scoped default `nsfPath` remembers the last NSF in the MCP session. Progress updates during `export_design`, `inventory_design`, and `sync_repo`. Remaining polish: richer `outputSchema` on more tools, and a `debug` dump of the Kyber path and status (never tokens).
 
 Kyber dependencies. The remaining tools above that need routes already present in Kyber 0.26 should be wrapped next. Anything still waiting on new Kyber work stays in [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements).
 
@@ -109,7 +107,7 @@ DRAPI's data port can stay unpublished. Aldhani calls it from the same machine. 
 .\build.ps1
 ```
 
-The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.15.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
+The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.16.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
 
 `target\` is gitignored.
 
@@ -117,8 +115,8 @@ The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `t
 
 The HTTP task loads the feature only when it is listed in `platform.xml`. The applications site on Domino uses the `USER-EXCLUDE` policy, and Equinox reads the feature as a directory, so copying a jar into `plugins` is not enough. `install.ps1` does three things:
 
-- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.15.jar`
-- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.15\`
+- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.16.jar`
+- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.16\`
 - adds the feature under the applications site in `domino\workspace\.config\org.eclipse.update\platform.xml`
 
 Stop HTTP first. On shutdown the HTTP task rewrites `platform.xml` from memory, so an edit made while HTTP is running is lost. `tell http restart` does not reload this configuration.

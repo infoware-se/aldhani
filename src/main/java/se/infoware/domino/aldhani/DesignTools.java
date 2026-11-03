@@ -338,7 +338,8 @@ final class DesignTools {
 
     private String syncRepo(Map<String, Object> arguments) {
         if (config.repoRoot == null) {
-            throw new IllegalArgumentException("repoRoot is not set");
+            throw new IllegalArgumentException(
+                    "repoRoot is not set in aldhani.json; set it to a directory then call sync_repo again");
         }
         String given = Json.string(arguments.get("nsfPath"));
         List<String> targets = new ArrayList<>();
@@ -355,9 +356,13 @@ final class DesignTools {
             throw new IllegalArgumentException("repoNsf is empty");
         }
         List<Object> databases = new ArrayList<>();
-        for (String target : targets) {
+        int total = targets.size();
+        for (int i = 0; i < targets.size(); i++) {
+            String target = targets.get(i);
+            reportProgress("Syncing " + target, i, total);
             databases.add(RepoSync.write(config, kyber, target));
         }
+        reportProgress("Finished sync_repo", total, total);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("databases", databases);
         return Json.write(result);
@@ -653,11 +658,15 @@ final class DesignTools {
 
     private String exportDesign(Map<String, Object> arguments) {
         String nsf = nsf(arguments);
-        return page(kyber.get("/api/kyber-v1/export?" + KyberClient.query("nsfPath", nsf)), arguments);
+        reportProgress("Exporting " + nsf, 0, 1);
+        String body = page(kyber.get("/api/kyber-v1/export?" + KyberClient.query("nsfPath", nsf)), arguments);
+        reportProgress("Finished export_design", 1, 1);
+        return body;
     }
 
     private String inventoryDesign(Map<String, Object> arguments) {
         String nsf = nsf(arguments);
+        reportProgress("Inventory " + nsf, 0, 1);
         String body = kyber.get("/api/kyber-v1/export?" + KyberClient.query("nsfPath", nsf));
         Map<String, Object> document = Json.object(Json.parse(body));
         Object raw = document.get("elements");
@@ -704,6 +713,7 @@ final class DesignTools {
         if (skipped instanceof List<?> list && !list.isEmpty()) {
             result.put("skipped", list.size());
         }
+        reportProgress("Finished inventory_design", 1, 1);
         return Json.write(result);
     }
 
@@ -860,9 +870,32 @@ final class DesignTools {
         String given = Json.string(arguments.get("nsfPath"));
         String path = (given == null || given.isBlank()) ? config.onlyNsf() : given;
         if (path == null) {
-            throw new IllegalArgumentException("nsfPath is required");
+            throw new IllegalArgumentException(
+                    "nsfPath is required when more than one database is allowlisted ("
+                            + String.join(", ", config.allowedNsf) + ")");
         }
         return allowlisted(path);
+    }
+
+    /** Optional progress sink: message, completed steps, total steps. */
+    static final ThreadLocal<Progress> PROGRESS = new ThreadLocal<>();
+
+    record Progress(java.util.function.Consumer<ProgressUpdate> sink) {
+        void report(String message, int completed, int total) {
+            if (sink != null) {
+                sink.accept(new ProgressUpdate(message, completed, total));
+            }
+        }
+    }
+
+    record ProgressUpdate(String message, int completed, int total) {
+    }
+
+    private void reportProgress(String message, int completed, int total) {
+        Progress progress = PROGRESS.get();
+        if (progress != null) {
+            progress.report(message, completed, total);
+        }
     }
 
     private String writableNsf(Map<String, Object> arguments) {
