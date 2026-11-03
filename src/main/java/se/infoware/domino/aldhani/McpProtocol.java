@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 final class McpProtocol {
-    static final String VERSION = "0.1.11";
+    static final String VERSION = "0.1.15";
     private static final String LATEST_PROTOCOL = "2025-11-25";
     private static final Set<String> PROTOCOL_VERSIONS = Set.of(
             "2024-11-05",
@@ -210,7 +210,8 @@ final class McpProtocol {
         definitions.add(tool(
                 "list_databases",
                 "Lists the Kyber-enabled databases Aldhani is allowed to see. "
-                        + "aldhanitest.nsf is the sandbox. Other databases are omitted.",
+                        + "aldhanitest.nsf is the sandbox. Other allowlisted databases may appear. "
+                        + "more is true when Kyber had more files than the allowlist filter kept.",
                 Map.of(
                         "fileType", prop("string",
                                 "database (default), template, replica_candidate, or template_candidate")),
@@ -229,13 +230,20 @@ final class McpProtocol {
                 read));
         definitions.add(tool(
                 "get_design",
-                "Returns one design element or one database note, including its DXL.",
+                "Returns one design element or one database note, including its DXL. "
+                        + "Pass type and name (or type alone for a database note), "
+                        + "or look up by unid or noteId without type. "
+                        + "For acl, Kyber also returns structured entries and roles beside dxl. "
+                        + "Names with parentheses use Kyber's /named route automatically.",
                 Map.of(
                         "type", prop("string", typeDescription()),
                         "name", prop("string", "Element name. Omit for a database note."),
+                        "unid", prop("string", "Note UNID. Use instead of type and name."),
+                        "noteId", prop("string", "Note id. Use instead of type and name."),
+                        "includeDxl", prop("boolean", "When looking up by unid or noteId, include DXL. Default true."),
                         "nsfPath", prop("string", "NSF path. Defaults to the only allowed database."),
                         "part", prop("integer", "Zero-based page of a large body. Each page is raw text, not a summary.")),
-                List.of("type"),
+                List.of(),
                 read));
         definitions.add(tool(
                 "export_design",
@@ -253,6 +261,52 @@ final class McpProtocol {
                 Map.of(
                         "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
                 List.of(),
+                read));
+        definitions.add(tool(
+                "search_design",
+                "Searches design names and optionally DXL in an allowed NSF. "
+                        + "Prefer this over inventory_design loops when looking for a name or substring.",
+                Map.of(
+                        "q", prop("string", "Search text."),
+                        "types", prop("string",
+                                "Comma-separated design types, or omit to search every collection."),
+                        "match", prop("string", "name (default), dxl, or both."),
+                        "limit", prop("integer", "Maximum matches. At most 200."),
+                        "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
+                List.of("q"),
+                read));
+        definitions.add(tool(
+                "list_templates",
+                "Lists starter template names for one design type from kyber.nsf and JAR defaults. "
+                        + "Use the name with create_design template, or preview_starter.",
+                Map.of(
+                        "type", prop("string", typeDescription()),
+                        "kind", prop("string", "Agent, script library, or Java source kind."),
+                        "nsfPath", prop("string", "Optional NSF for Kyber routing. Usually omit.")),
+                List.of("type"),
+                read));
+        definitions.add(tool(
+                "preview_starter",
+                "Resolves the empty-create starter DXL without writing. "
+                        + "Optional template picks a named starter from list_templates.",
+                Map.of(
+                        "type", prop("string", typeDescription()),
+                        "name", prop("string", "Proposed element name for the preview."),
+                        "kind", prop("string", "Agent, script library, or Java source kind."),
+                        "template", prop("string", "Starter name from list_templates."),
+                        "nsfPath", prop("string", "Optional NSF for Kyber routing. Usually omit.")),
+                List.of("type"),
+                read));
+        definitions.add(tool(
+                "get_content",
+                "Returns binary design content as contentBase64. "
+                        + "type is image, fileresource, jar, or dbicon. name is required except for dbicon.",
+                Map.of(
+                        "type", prop("string", "image, fileresource, jar, or dbicon."),
+                        "name", prop("string", "Element name. Omit for dbicon."),
+                        "nsfPath", prop("string", "NSF path. Defaults to the only allowed database."),
+                        "part", prop("integer", "Zero-based page of a large body.")),
+                List.of("type"),
                 read));
         definitions.add(tool(
                 "repo_path",
@@ -292,8 +346,39 @@ final class McpProtocol {
                     List.of(),
                     hints(false, false, false)));
             definitions.add(tool(
+                    "create_database_from_template",
+                    "Creates one missing allowlisted NSF from a Domino NTF/NSF template. "
+                            + "Kyber sets KyberEnabled and gives the caller Manager. "
+                            + "templateNsfPath is path-safe but need not be allowlisted. "
+                            + "An existing target responds as a conflict. Database delete is not a tool.",
+                    Map.of(
+                            "nsfPath", prop("string", "Target NSF path. Must be allowlisted."),
+                            "templateNsfPath", prop("string", "Source template NSF/NTF path."),
+                            "dbTitle", prop("string", "Database title after create."),
+                            "encryption", prop("string", "none, simple, medium, strong, aes128, or aes256.")),
+                    List.of("templateNsfPath"),
+                    hints(false, false, false)));
+            definitions.add(tool(
+                    "set_db_title",
+                    "Sets the database title on an allowlisted Kyber-enabled NSF without rewriting applicationproperties.",
+                    Map.of(
+                            "dbTitle", prop("string", "New database title."),
+                            "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
+                    List.of("dbTitle"),
+                    hints(false, false, true)));
+            definitions.add(tool(
+                    "set_kyber_enabled",
+                    "Sets or clears the KyberEnabled catalog category on an allowlisted NSF. "
+                            + "Clearing it stops further Kyber design calls on that file until it is set again.",
+                    Map.of(
+                            "enabled", prop("boolean", "true to set KyberEnabled, false to clear it."),
+                            "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
+                    List.of("enabled"),
+                    hints(false, false, true)));
+            definitions.add(tool(
                     "create_design",
                     "Creates one design element. Omit dxl to copy Kyber's starter. "
+                            + "template selects a named starter from list_templates. "
                             + "name is required for a collection. Agents, script libraries, and Java sources take kind. "
                             + "about, using, databasescript, and xspproperties can be created. "
                             + "acl, applicationproperties, and dbicon cannot.",
@@ -301,6 +386,7 @@ final class McpProtocol {
                             "type", prop("string", typeDescription()),
                             "name", prop("string", "Element name. Omit for a creatable database note."),
                             "kind", prop("string", "Agent, script library, or Java source kind. Only on create."),
+                            "template", prop("string", "Starter name from list_templates. Not with dxl."),
                             "dxl", prop("string", "DXL. Omit to copy the starter."),
                             "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
                     List.of("type"),
@@ -316,6 +402,66 @@ final class McpProtocol {
                             "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
                     List.of("type", "dxl"),
                     hints(false, false, true)));
+            definitions.add(tool(
+                    "patch_design",
+                    "Patches comment and/or alias on one named design element without replacing the DXL.",
+                    Map.of(
+                            "type", prop("string", typeDescription()),
+                            "name", prop("string", "Element name."),
+                            "comment", prop("string", "Design comment. Omit to leave it unchanged."),
+                            "alias", prop("string", "Alias after |. Omit to leave it unchanged."),
+                            "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
+                    List.of("type", "name"),
+                    hints(false, false, true)));
+            definitions.add(tool(
+                    "copy_design",
+                    "Copies one named design element. toNsfPath may be another allowlisted NSF.",
+                    Map.of(
+                            "type", prop("string", typeDescription()),
+                            "name", prop("string", "Source element name."),
+                            "toName", prop("string", "Name of the copy."),
+                            "nsfPath", prop("string", "Source NSF path. Defaults to the only allowed database."),
+                            "toNsfPath", prop("string", "Destination NSF. Defaults to nsfPath. Must be allowlisted.")),
+                    List.of("type", "name", "toName"),
+                    hints(false, false, false)));
+            definitions.add(tool(
+                    "rename_design",
+                    "Renames one named design element without delete-plus-create.",
+                    Map.of(
+                            "type", prop("string", typeDescription()),
+                            "name", prop("string", "Current element name."),
+                            "newName", prop("string", "New element name."),
+                            "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
+                    List.of("type", "name", "newName"),
+                    hints(false, false, false)));
+            definitions.add(tool(
+                    "update_content",
+                    "Replaces binary design content from contentBase64. "
+                            + "type is image, fileresource, jar, or dbicon. name is required except for dbicon.",
+                    Map.of(
+                            "type", prop("string", "image, fileresource, jar, or dbicon."),
+                            "name", prop("string", "Element name. Omit for dbicon."),
+                            "contentBase64", prop("string", "Base64-encoded bytes."),
+                            "contentType", prop("string", "Optional MIME type, for example image/png."),
+                            "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
+                    List.of("type", "contentBase64"),
+                    hints(false, false, true)));
+            definitions.add(tool(
+                    "recompile_lotusscript",
+                    "Runs Kyber's Recompile All LotusScript for an allowlisted NSF.",
+                    Map.of(
+                            "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
+                    List.of(),
+                    hints(false, false, false)));
+            definitions.add(tool(
+                    "inherit_design",
+                    "Refreshes design from the NSF's design template via Domino Database.refreshDesign. "
+                            + "Optional templateServer names the server that holds the template.",
+                    Map.of(
+                            "nsfPath", prop("string", "NSF path. Defaults to the only allowed database."),
+                            "templateServer", prop("string", "Template server. Omit for the local/current server.")),
+                    List.of(),
+                    hints(false, false, false)));
             definitions.add(tool(
                     "delete_design",
                     "Deletes one named design element, or about, using, databasescript, or xspproperties. "
@@ -366,10 +512,14 @@ final class McpProtocol {
     private static Map<String, Object> outputSchema(String name) {
         return switch (name) {
             case "list_databases" -> listDatabasesSchema();
-            case "repo_path", "sync_repo", "inventory_design", "create_database" ->
+            case "repo_path", "sync_repo", "inventory_design", "search_design", "list_templates",
+                    "preview_starter", "get_content", "create_database",
+                    "create_database_from_template", "set_db_title", "set_kyber_enabled",
+                    "recompile_lotusscript", "inherit_design" ->
                     Map.of("type", "object", "additionalProperties", true);
             case "list_design", "get_design" -> designObjectSchema();
-            case "create_design", "update_design", "delete_design", "validate_design" ->
+            case "create_design", "update_design", "patch_design", "copy_design", "rename_design",
+                    "update_content", "delete_design", "validate_design" ->
                     Map.of("type", "object", "additionalProperties", true);
             default -> null;
         };
@@ -383,7 +533,8 @@ final class McpProtocol {
         schema.put("properties", Map.of(
                 "allowedNsf", Map.of("type", "array", "items", Map.of("type", "string")),
                 "databases", Map.of("type", "array", "items", Map.of("type", "object")),
-                "missing", Map.of("type", "array", "items", Map.of("type", "string"))));
+                "missing", Map.of("type", "array", "items", Map.of("type", "string")),
+                "more", Map.of("type", "boolean")));
         return schema;
     }
 
@@ -420,7 +571,9 @@ final class McpProtocol {
 
     private String instructions() {
         String text = "Aldhani is the MCP server for Domino design. Every design call goes to Kyber. "
-                + "Read with inventory_design or list_design, then get_design for one element. "
+                + "Read with inventory_design, list_design, or search_design, then get_design for one element. "
+                + "get_design accepts type and name, or unid or noteId alone. "
+                + "list_templates and preview_starter show empty-create starters; get_content reads image, file, jar, or dbicon bytes. "
                 + "A result with truncated left out DXL because the body was large. "
                 + "Call get_design or export_design with part to read that body in pages. "
                 + "repo_path is where that DXL file belongs in a repository. "
@@ -429,8 +582,11 @@ final class McpProtocol {
                 + "Prompts review_design and explain_design say how to read one element. "
                 + "Send the caller token as Authorization: Aldhani. ";
         if (tools.writesEnabled()) {
-            return text + "create_database creates a missing allowlisted NSF. "
-                    + "create_design, update_design, and delete_design change one element. "
+            return text + "create_database and create_database_from_template create a missing allowlisted NSF. "
+                    + "set_db_title and set_kyber_enabled change database metadata. "
+                    + "create_design (optional template), update_design, patch_design, copy_design, rename_design, "
+                    + "update_content, recompile_lotusscript, inherit_design, and delete_design change design. "
+                    + "Residual notes use type designnote. "
                     + "validate_design writes nothing. acl cannot be replaced or deleted.";
         }
         return text + "Writes are off.";

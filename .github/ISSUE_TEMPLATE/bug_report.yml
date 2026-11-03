@@ -13,7 +13,7 @@ body:
     id: version
     attributes:
       label: Aldhani version
-      placeholder: "0.1.11"
+      placeholder: "0.1.15"
     validations:
       required: true
   - type: input

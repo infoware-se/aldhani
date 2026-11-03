@@ -18,6 +18,8 @@ final class AldhaniConfig {
     final List<String> allowedNsf;
     final boolean insecureTls;
     final boolean allowWrite;
+    /** Null means every allowlisted NSF may be written when {@link #allowWrite} is true. */
+    final List<String> writeNsf;
     final String publicBaseUrl;
     final String oauthSubject;
     final String repoRoot;
@@ -31,6 +33,7 @@ final class AldhaniConfig {
             List<String> allowedNsf,
             boolean insecureTls,
             boolean allowWrite,
+            List<String> writeNsf,
             String publicBaseUrl,
             String oauthSubject,
             String repoRoot,
@@ -42,6 +45,7 @@ final class AldhaniConfig {
         this.allowedNsf = List.copyOf(allowedNsf);
         this.insecureTls = insecureTls;
         this.allowWrite = allowWrite;
+        this.writeNsf = writeNsf == null ? null : List.copyOf(writeNsf);
         this.publicBaseUrl = publicBaseUrl;
         this.oauthSubject = oauthSubject;
         this.repoRoot = repoRoot;
@@ -82,6 +86,7 @@ final class AldhaniConfig {
         Object tls = root.get("insecureTls");
         boolean insecure = Boolean.TRUE.equals(tls);
         boolean allowWrite = Boolean.TRUE.equals(root.get("allowWrite"));
+        List<String> writeNsf = pathList(root, "writeNsf");
         AldhaniConfig config = new AldhaniConfig(
                 base,
                 required(root, "kyberUser"),
@@ -90,10 +95,18 @@ final class AldhaniConfig {
                 paths,
                 insecure,
                 allowWrite,
+                writeNsf,
                 optional(root, "publicBaseUrl"),
                 optional(root, "oauthSubject"),
                 optional(root, "repoRoot"),
-                repoNsf(root));
+                pathList(root, "repoNsf"));
+        if (config.writeNsf != null) {
+            for (String path : config.writeNsf) {
+                if (!config.allows(path)) {
+                    throw new IllegalArgumentException("writeNsf is not allowlisted: " + path);
+                }
+            }
+        }
         if (config.repoNsf != null) {
             for (String path : config.repoNsf) {
                 if (!config.allows(path)) {
@@ -125,19 +138,39 @@ final class AldhaniConfig {
         return false;
     }
 
-    private static List<String> repoNsf(Map<String, Object> root) {
-        if (!root.containsKey("repoNsf") || root.get("repoNsf") == null) {
+    /** True when writes are on and this NSF is in the write grant (or every allowlisted NSF). */
+    boolean writes(String path) {
+        if (!allowWrite) {
+            return false;
+        }
+        String normalized = normalizeNsf(path);
+        if (!allows(normalized)) {
+            return false;
+        }
+        if (writeNsf == null) {
+            return true;
+        }
+        for (String granted : writeNsf) {
+            if (granted.equalsIgnoreCase(normalized)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static List<String> pathList(Map<String, Object> root, String key) {
+        if (!root.containsKey(key) || root.get(key) == null) {
             return null;
         }
-        Object raw = root.get("repoNsf");
+        Object raw = root.get(key);
         if (!(raw instanceof List<?> list)) {
-            throw new IllegalArgumentException("repoNsf must be a list");
+            throw new IllegalArgumentException(key + " must be a list");
         }
         List<String> paths = new ArrayList<>();
         for (Object item : list) {
             String path = Json.string(item);
             if (path == null || path.isBlank()) {
-                throw new IllegalArgumentException("repoNsf contains an empty path");
+                throw new IllegalArgumentException(key + " contains an empty path");
             }
             paths.add(normalizeNsf(path));
         }

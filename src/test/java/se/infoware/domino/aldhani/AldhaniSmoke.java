@@ -103,11 +103,15 @@ public final class AldhaniSmoke {
         }
         List<String> expected = new ArrayList<>(List.of(
                 "list_databases", "list_design", "get_design", "export_design", "inventory_design",
+                "search_design", "list_templates", "preview_starter", "get_content",
                 "repo_path", "sync_repo"));
         boolean writes = toolNames.contains("create_design");
         if (writes) {
             expected.addAll(List.of(
-                    "create_database", "create_design", "update_design", "delete_design", "validate_design"));
+                    "create_database", "create_database_from_template", "set_db_title", "set_kyber_enabled",
+                    "create_design", "update_design", "patch_design",
+                    "copy_design", "rename_design", "update_content", "recompile_lotusscript",
+                    "inherit_design", "delete_design", "validate_design"));
         }
         expect(expected, toolNames);
         if (!Json.object(toolDefs.get(0)).containsKey("outputSchema")) {
@@ -126,12 +130,28 @@ public final class AldhaniSmoke {
 
         String databases = tool(http, url, config.bearerToken, "list_databases", Map.of());
         Map<String, Object> listedDatabases = Json.object(Json.parse(databases));
-        expect(List.of(NSF), listedDatabases.get("allowedNsf"));
-        expect(List.of(), listedDatabases.get("missing"));
+        List<?> allowed = (List<?>) listedDatabases.get("allowedNsf");
+        if (allowed == null || !allowed.stream().anyMatch(path -> NSF.equalsIgnoreCase(String.valueOf(path)))) {
+            throw new AssertionError("allowedNsf must include " + NSF);
+        }
+        List<?> missing = (List<?>) listedDatabases.get("missing");
+        if (missing != null && missing.stream().anyMatch(path -> NSF.equalsIgnoreCase(String.valueOf(path)))) {
+            throw new AssertionError(NSF + " is missing from Kyber");
+        }
         List<?> found = (List<?>) listedDatabases.get("databases");
-        expect(1, found.size());
-        Map<String, Object> database = Json.object(found.get(0));
-        expect(NSF, database.get("nsfPath"));
+        Map<String, Object> database = null;
+        if (found != null) {
+            for (Object item : found) {
+                Map<String, Object> row = Json.object(item);
+                if (NSF.equalsIgnoreCase(Json.string(row.get("nsfPath")))) {
+                    database = row;
+                    break;
+                }
+            }
+        }
+        if (database == null) {
+            throw new AssertionError(NSF + " was not listed");
+        }
         expect("Aldhani Smoke Test", database.get("dbTitle"));
 
         for (Map.Entry<String, List<String>> entry : DESIGN.entrySet()) {
@@ -215,15 +235,19 @@ public final class AldhaniSmoke {
             String name = Json.string(tool.get("name"));
             Map<String, Object> annotations = Json.object(tool.get("annotations"));
             boolean read = !"create_design".equals(name) && !"update_design".equals(name)
+                    && !"patch_design".equals(name) && !"copy_design".equals(name)
+                    && !"rename_design".equals(name) && !"update_content".equals(name)
+                    && !"recompile_lotusscript".equals(name) && !"inherit_design".equals(name)
                     && !"delete_design".equals(name) && !"sync_repo".equals(name)
-                    && !"create_database".equals(name);
+                    && !"create_database".equals(name) && !"create_database_from_template".equals(name)
+                    && !"set_db_title".equals(name) && !"set_kyber_enabled".equals(name);
             expect(read, annotations.get("readOnlyHint"));
             expect("delete_design".equals(name), annotations.get("destructiveHint"));
         }
         if (!writes) {
             return;
         }
-        expect(true, toolDefs.size() == 12);
+        expect(true, toolDefs.size() == 25);
     }
 
     private static void assertListLimit(HttpClient http, String url, String token) {
