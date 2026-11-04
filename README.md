@@ -10,7 +10,7 @@ Aldhani is an MCP server for HCL Domino design. It runs as an OSGi servlet on th
 
 Version 0.1.17. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
 
-Design API: [Kyber](https://github.com/infoware-se/kyber). Releases: [jar attachments](https://github.com/infoware-se/aldhani/releases). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.md](SECURITY.md).
+Design API: [Kyber](https://github.com/infoware-se/kyber). Deploy: [Yavin](https://github.com/infoware-se/yavin). Releases: [jar attachments](https://github.com/infoware-se/aldhani/releases). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.md](SECURITY.md).
 
 ## Language
 
@@ -22,22 +22,31 @@ An agent needs to work with Domino design through the products Infoware already 
 
 Aldhani translates MCP into Kyber calls and limits which NSF files the agent may ask about. DRAPI can stay on the server. The agent reaches `/mcp` on the HTTP task. `kyberUser` is the identity Kyber sees, for reads and for writes. Database delete, a full design import, and an ACL replacement are not tools.
 
-## Boundary with Kyber
+## Boundary with Kyber and Yavin
 
-Kyber is the design API. Aldhani is the MCP product in front of it. Keep that split when adding tools or routes.
+Aldhani is one of three Infoware Domino products. The detailed family map lives in [Yavin](https://github.com/infoware-se/yavin); this table is the short form for contributors here.
 
-| | Kyber | Aldhani |
-|--|--|--|
-| Runs as | JAR on Domino REST API (DRAPI / KEEP) | OSGi servlet on the Domino HTTP task |
-| Speaks | `/api/kyber-v1` (and DRAPI auth) | MCP at `POST /mcp` |
-| Changes design in an NSF | Yes — create, update, delete, export, import, validate, compile, binary content, inherit | No — every design mutation is a Kyber call as `kyberUser` |
-| Chooses which NSF an agent may touch | Catalog category `KyberEnabled` + Domino ACL | `allowedNsf` allowlist before Kyber is called |
-| Chooses which routes an agent may call | Ships the full design surface | Tool list, `allowWrite`, and explicit refusals |
-| Own work without Kyber | — | `repo_path` / `repo_status` / `sync_repo` under `repoRoot` (disk only); `debug_kyber` |
+| | Kyber | Aldhani | Yavin |
+|--|--|--|--|
+| Role | Design API on DRAPI | MCP server for agents | Deploy / ops |
+| Runs as | JAR on Domino REST (`restapi`) | OSGi servlet on Domino HTTP | Scripts + host profiles |
+| Speaks | `/api/kyber-v1` (+ DRAPI auth) | MCP `POST /mcp` | Domino console / Notes COM / file copy |
+| Changes design in an NSF | Yes | No — every mutation is Kyber as `kyberUser` | No |
+| NSF gate | `KyberEnabled` + Domino ACL | `allowedNsf` (optional `writeNsf`) before Kyber | Host reachable; no NSF category logic |
+| Agent surface | Full design API | Tool list, `allowWrite`, explicit refusals | N/A |
+| Own work without Kyber | — | `repo_path` / `repo_status` / `sync_repo` under `repoRoot` (disk only); `debug_kyber` | Host pins / quit-load |
 
-Aldhani must not grow a second DXL writer. New Domino design capability belongs in Kyber first; Aldhani wraps it and applies policy. Aldhani backlog is MCP, allowlist, writes policy, repo sync, smoke, and wrapping. Kyber backlog is design routes and round-trip behavior — see [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements).
+**Where new work goes**
 
-Refused on purpose in Aldhani (still available in Kyber for other clients): database delete, full design import or replace, ACL replace or delete. Outside both products' design scope: application documents, DQL, running agents as general automation, server console, compact, quota, and user administration.
+| Kind of change | Belongs in |
+|--|--|
+| Design route, DXL round-trip, blank NSF chrome, JAR element defaults | **[Kyber](https://github.com/infoware-se/kyber)** |
+| MCP tool, allowlist / `writeNsf`, `allowWrite`, refuse policy, agent UX, repo sync | **Aldhani** (this repo — wrap Kyber after the route exists) |
+| Host inventory, version pins, promote lab→prod, restart restapi/http, post-deploy “what’s loaded?” smoke | **[Yavin](https://github.com/infoware-se/yavin)** |
+
+Aldhani must not grow a second DXL writer. New Domino design capability belongs in Kyber first; Aldhani wraps it and applies policy. Kyber backlog is design routes and round-trip — see [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements). Installing which Aldhani/Kyber build a host runs is Yavin, not this repo. See also [Kyber's Boundary with Aldhani and Yavin](https://github.com/infoware-se/kyber#boundary-with-aldhani-and-yavin).
+
+Refused on purpose in Aldhani (still available in Kyber for other clients): database delete, full design import or replace, ACL replace or delete. Outside the design family: application documents, DQL, running agents as general automation, server console, compact, quota, user administration, and Yavin host deploy.
 
 ## How a call moves
 

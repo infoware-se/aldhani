@@ -5,4 +5,7 @@ contact_links:
     about: Report a vulnerability privately. Do not open a public issue.
   - name: Kyber (design API)
     url: https://github.com/infoware-se/kyber/issues
-    about: Issues in the Kyber REST API belong in the Kyber repository.
+    about: Design-route and DXL issues belong in the Kyber repository.
+  - name: Yavin (deploy / ops)
+    url: https://github.com/infoware-se/yavin/issues
+    about: Host pins, install, restart, and post-deploy smoke belong in the Yavin repository.

@@ -23,5 +23,7 @@ Comments, commit messages, and documentation are written in English.
 
 ## Related
 
-- Design API: [Kyber](https://github.com/infoware-se/kyber)
+- Design API: [Kyber](https://github.com/infoware-se/kyber) — design routes and DXL (not MCP policy)
+- Deploy / ops: [Yavin](https://github.com/infoware-se/yavin) — host pins, install, post-deploy smoke (not MCP tools)
 - Security reports: [SECURITY.md](SECURITY.md)
+- Family boundary: [README — Boundary with Kyber and Yavin](README.md#boundary-with-kyber-and-yavin)
