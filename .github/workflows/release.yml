@@ -48,4 +48,9 @@ jobs:
 
           See the README for configuration and MCP tools.
           "@
-          gh release create $tag $jar --title "Aldhani $ver" --notes $notes --verify-tag
+          if (gh release view $tag 2>$null) {
+            gh release upload $tag $jar --clobber
+            gh release edit $tag --title "Aldhani $ver" --notes $notes
+          } else {
+            gh release create $tag $jar --title "Aldhani $ver" --notes $notes --verify-tag
+          }
