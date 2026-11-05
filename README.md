@@ -81,7 +81,15 @@ A tool result is text. A body over 100 000 characters is returned as JSON with `
 
 Kyber is the design API. This section is Aldhani's own backlog: MCP, allowlist, writes policy, repo sync, smoke, and wrapping Kyber helpers that agents still invent from inventory loops. Aldhani only wraps what Kyber exposes. Remaining Kyber-side work is tracked in [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements).
 
-Bearer / OIDC without Domino site config. Prefer `Authorization: Aldhani` or `X-Aldhani-Token` (static `bearerToken` or an OAuth access JWT). The token endpoint also sets an `aldhani_at` HttpOnly cookie that `/mcp` accepts. Domino may consume `Authorization: Bearer` until the Internet Site trusts Aldhani as an OIDC provider; resource metadata and the token response document the Aldhani headers so clients need no Domino admin change. Optional upgrade: enable Domino Bearer + OIDC trust so `Authorization: Bearer` reaches the servlet.
+### Open
+
+Optional Domino Bearer + OIDC Internet Site trust so raw `Authorization: Bearer` reaches `/mcp`. Not required: clients already use `Authorization: Aldhani`, `X-Aldhani-Token`, or the `aldhani_at` cookie.
+
+Missing design tools (lower value; need Kyber first). Design-note undo or version history, formula-only validate separate from DXL `validate_design`, and list private vs shared design. Structured ACL entry/role CRUD is tracked in [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements).
+
+Prompts exist but many MCP hosts barely surface them. Session default `nsfPath`, resources, progress, completions, `outputSchema`, and `debug_kyber` are shipped.
+
+### Shipped
 
 Shipped in 0.1.20. OAuth/MCP auth works without Domino OIDC site trust: token response hints + `aldhani_at` cookie, 401/`resource` metadata prefer `Authorization: Aldhani` / `X-Aldhani-Token`.
 
@@ -93,13 +101,9 @@ Shipped in 0.1.17. Every tool declares `outputSchema`. `debug_kyber` and debug-l
 
 Shipped against Kyber 0.26+. Helpers for search/lookup/copy/rename/patch, templates/binary/compile, database title/category/fromTemplate/inherit, typed `designnote` CRUD, `databases.more`, ACL `entries`/`roles` on `get_design` type `acl`, `/named` for parenthesis titles, and per-NSF `writeNsf` grants wrap the matching Kyber routes and Aldhani policy.
 
-Missing design tools (lower value; need Kyber first). Design-note undo or version history, formula-only validate separate from DXL `validate_design`, and list private vs shared design. Structured ACL entry/role CRUD is tracked in [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements).
+### Keep out
 
-MCP and agent UX. Prompts exist but many hosts barely surface them. Session default `nsfPath`, resources, progress, completions, `outputSchema`, and `debug_kyber` are shipped.
-
-Kyber dependencies. Anything still waiting on new Kyber work stays in [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements).
-
-Keep out of tools. Database delete, full design import or replace, and ACL replace or delete stay unavailable on purpose. Application documents, DQL, running agents, server console, compact, quota, and user administration stay outside this design MCP; another product can cover those.
+Database delete, full design import or replace, and ACL replace or delete stay unavailable on purpose. Application documents, DQL, running agents, server console, compact, quota, and user administration stay outside this design MCP; another product can cover those.
 
 ## Requirements
 
@@ -157,7 +161,7 @@ Copy `aldhani.json.example` to `<Domino data>\aldhani.json`. `ALDHANI_CONFIG` ca
 | `allowWrite` | When true, list the write tools (create/update/patch/copy/rename/delete/validate, plus create_database). Missing or false keeps an existing install read-only. |
 | `writeNsf` | Optional list of allowlisted NSFs that accept writes when `allowWrite` is true. Omit the key (do not use an empty list) to allow every allowlisted NSF. Use this to keep app NSFs readable while only the sandbox is writable. |
 | `repoRoot` | Optional directory for Package Explorer sync. Absolute, or relative to the Domino data directory. A design write refreshes that NSF here, and `sync_repo` refreshes every NSF in `repoNsf`. |
-| `repoNsf` | Optional list of allowlisted NSFs to write under `repoRoot`. Missing means every allowlisted NSF. |
+| `repoNsf` | Optional list of allowlisted NSFs to write under `repoRoot`. Omit the key (do not use an empty list) to sync every allowlisted NSF. An empty list syncs nothing. |
 | `publicBaseUrl` | Optional HTTPS origin used in OAuth metadata, with no trailing slash. When it is missing, Aldhani uses the request host. |
 | `oauthSubject` | Optional Domino name placed in the access token. When it is missing, `kyberUser` is used. Domino must be able to find that person. |
 

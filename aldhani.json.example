@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to the Domino data directory as aldhani.json. bearerToken is what the MCP client sends as Authorization: Aldhani. kyberUser is the account Aldhani uses against Kyber. insecureTls is for DRAPI's private certificate on the same server. publicBaseUrl is optional and fixes the HTTPS origin advertised by OAuth. oauthSubject is optional and defaults to kyberUser. writeNsf is optional: when allowWrite is true and writeNsf is set, only those allowlisted NSFs accept writes.",
+  "_comment": "Copy to the Domino data directory as aldhani.json. bearerToken is what the MCP client sends as Authorization: Aldhani or X-Aldhani-Token. kyberUser is the account Aldhani uses against Kyber. insecureTls is for DRAPI's private certificate on the same server. publicBaseUrl is optional and fixes the HTTPS origin advertised by OAuth. oauthSubject is optional and defaults to kyberUser. writeNsf and repoNsf are optional lists of allowlisted NSFs — omit the keys (do not use []) to mean every allowlisted NSF. Set repoRoot only when Package Explorer sync is wanted.",
   "kyberBaseUrl": "https://dantooine.oninfoware.local:8880",
   "kyberUser": "CN=Aldhani Reader/O=onInfoware",
   "kyberPassword": "",
@@ -7,7 +7,5 @@
   "allowedNsf": ["aldhanitest.nsf"],
   "insecureTls": true,
   "allowWrite": false,
-  "repoRoot": "",
-  "repoNsf": [],
   "publicBaseUrl": "https://dantooine.oninfoware.local"
 }
