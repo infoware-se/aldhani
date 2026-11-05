@@ -34,17 +34,21 @@ final class DesignTools {
     private static final Set<String> READ_NAMES = Set.of(
             "list_databases", "list_design", "get_design", "export_design", "inventory_design",
             "search_design", "list_templates", "preview_starter", "get_content",
+            "list_fields", "list_columns", "get_design_summary", "diff_design", "list_agents_schedule",
             "repo_path", "repo_status", "sync_repo", "debug_kyber");
     private static final Set<String> WRITE_NAMES = Set.of(
             "list_databases", "list_design", "get_design", "export_design", "inventory_design",
             "search_design", "list_templates", "preview_starter", "get_content",
+            "list_fields", "list_columns", "get_design_summary", "diff_design", "list_agents_schedule",
             "repo_path", "repo_status", "sync_repo", "debug_kyber",
             "create_database", "create_database_from_template", "set_db_title", "set_kyber_enabled",
             "create_design", "update_design", "patch_design",
             "copy_design", "rename_design", "update_content", "recompile_lotusscript",
-            "inherit_design", "delete_design", "validate_design");
+            "inherit_design", "import_design_element", "delete_design", "validate_design");
     private static final int SKIPPED_DETAIL_LIMIT = 50;
     private static final Set<String> SEARCH_MATCH = Set.of("name", "dxl", "both");
+    private static final Set<String> FIELD_TYPES = Set.of("form", "subform");
+    private static final Set<String> COLUMN_TYPES = Set.of("view", "folder");
     private static final Set<String> CONTENT_TYPES = Set.of("image", "fileresource", "jar", "dbicon");
     private static final String XML = "text/xml; charset=utf-8";
     private static final String JSON = "application/json; charset=utf-8";
@@ -120,6 +124,11 @@ final class DesignTools {
                 case "list_templates" -> listTemplates(arguments);
                 case "preview_starter" -> previewStarter(arguments);
                 case "get_content" -> getContent(arguments);
+                case "list_fields" -> listFields(arguments);
+                case "list_columns" -> listColumns(arguments);
+                case "get_design_summary" -> getDesignSummary(arguments);
+                case "diff_design" -> diffDesign(arguments);
+                case "list_agents_schedule" -> listAgentsSchedule(arguments);
                 case "repo_path" -> RepoLayout.describe(arguments);
                 case "repo_status" -> Json.write(RepoSync.status(config));
                 case "sync_repo" -> syncRepo(arguments);
@@ -136,6 +145,7 @@ final class DesignTools {
                 case "update_content" -> updateContent(arguments);
                 case "recompile_lotusscript" -> recompileLotusScript(arguments);
                 case "inherit_design" -> inheritDesign(arguments);
+                case "import_design_element" -> importDesignElement(arguments);
                 case "delete_design" -> deleteDesign(arguments);
                 case "validate_design" -> validateDesign(arguments);
                 default -> throw new IllegalArgumentException("Unknown tool " + name);
@@ -510,6 +520,159 @@ final class DesignTools {
             query += "&limit=" + limit;
         }
         return kyber.get("/api/kyber-v1/search?" + query);
+    }
+
+    private String listFields(Map<String, Object> arguments) {
+        String type = structureType(arguments, FIELD_TYPES, "form or subform");
+        String query = KyberClient.query("nsfPath", nsf(arguments))
+                + "&" + KyberClient.query("type", type)
+                + "&" + KyberClient.query("name", required(arguments, "name"));
+        return kyber.get("/api/kyber-v1/fields?" + query);
+    }
+
+    private String listColumns(Map<String, Object> arguments) {
+        String type = structureType(arguments, COLUMN_TYPES, "view or folder");
+        String query = KyberClient.query("nsfPath", nsf(arguments))
+                + "&" + KyberClient.query("type", type)
+                + "&" + KyberClient.query("name", required(arguments, "name"));
+        return kyber.get("/api/kyber-v1/columns?" + query);
+    }
+
+    private String getDesignSummary(Map<String, Object> arguments) {
+        boolean byUnid = present(arguments, "unid");
+        boolean byNoteId = present(arguments, "noteId");
+        String query = KyberClient.query("nsfPath", nsf(arguments));
+        if (byUnid || byNoteId) {
+            if (byUnid && byNoteId) {
+                throw new IllegalArgumentException("pass unid or noteId, not both");
+            }
+            if (present(arguments, "type") || present(arguments, "name")) {
+                throw new IllegalArgumentException("unid or noteId summary does not take type or name");
+            }
+            if (byUnid) {
+                query += "&" + KyberClient.query("unid", required(arguments, "unid"));
+            } else {
+                query += "&" + KyberClient.query("noteId", required(arguments, "noteId"));
+            }
+        } else {
+            DesignKind kind = resolve(required(arguments, "type"));
+            query += "&" + KyberClient.query("type", kyberType(kind.path));
+            if (kind.singleton) {
+                if (present(arguments, "name")) {
+                    throw new IllegalArgumentException(kind.path + " has no element name");
+                }
+            } else {
+                query += "&" + KyberClient.query("name", required(arguments, "name"));
+            }
+        }
+        if (Boolean.TRUE.equals(arguments.get("includeDxl"))) {
+            query += "&includeDxl=true";
+        }
+        return page(kyber.get("/api/kyber-v1/summary?" + query), arguments);
+    }
+
+    private String diffDesign(Map<String, Object> arguments) {
+        String nsf = nsf(arguments);
+        boolean hasDxl = present(arguments, "dxl");
+        boolean hasNested = arguments.get("left") instanceof Map<?, ?>
+                || arguments.get("right") instanceof Map<?, ?>;
+        if (hasDxl || hasNested) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            if (hasNested) {
+                if (arguments.get("left") instanceof Map<?, ?> left) {
+                    body.put("left", normalizeDiffSide(Json.object(left)));
+                }
+                if (arguments.get("right") instanceof Map<?, ?> right) {
+                    body.put("right", normalizeDiffSide(Json.object(right)));
+                }
+            } else {
+                DesignKind kind = resolve(required(arguments, "type"));
+                body.put("type", kyberType(kind.path));
+                body.put("name", required(arguments, "name"));
+                body.put("dxl", required(arguments, "dxl"));
+                if (present(arguments, "toName")) {
+                    body.put("toName", Json.string(arguments.get("toName")));
+                }
+                if (present(arguments, "toType")) {
+                    body.put("toType", kyberType(Json.string(arguments.get("toType"))));
+                }
+            }
+            return client().exchange(
+                    "POST",
+                    "/api/kyber-v1/diff?" + KyberClient.query("nsfPath", nsf),
+                    Json.write(body),
+                    JSON);
+        }
+        DesignKind kind = resolve(required(arguments, "type"));
+        String query = KyberClient.query("nsfPath", nsf)
+                + "&" + KyberClient.query("type", kyberType(kind.path))
+                + "&" + KyberClient.query("name", required(arguments, "name"))
+                + "&" + KyberClient.query("toName", required(arguments, "toName"));
+        if (present(arguments, "toType")) {
+            query += "&" + KyberClient.query("toType", kyberType(Json.string(arguments.get("toType"))));
+        }
+        return kyber.get("/api/kyber-v1/diff?" + query);
+    }
+
+    private String listAgentsSchedule(Map<String, Object> arguments) {
+        String query = KyberClient.query("nsfPath", nsf(arguments));
+        if (present(arguments, "trigger")) {
+            query += "&" + KyberClient.query("trigger", Json.string(arguments.get("trigger")));
+        }
+        if (Boolean.TRUE.equals(arguments.get("scheduledOnly"))) {
+            query += "&scheduledOnly=true";
+        }
+        return kyber.get("/api/kyber-v1/schedules?" + query);
+    }
+
+    private String importDesignElement(Map<String, Object> arguments) {
+        KyberExchange writer = writer();
+        DesignKind kind = resolve(required(arguments, "type"));
+        if ("acl".equals(kind.path)) {
+            throw new IllegalArgumentException("acl cannot be replaced through Aldhani");
+        }
+        if (kind.singleton && !UPDATABLE_NOTES.contains(kind.path) && !CREATABLE_NOTES.contains(kind.path)) {
+            throw new IllegalArgumentException(kind.path + " cannot be upserted through Aldhani");
+        }
+        String nsf = writableNsf(arguments);
+        String dxl = dxl(arguments, true);
+        rejectKind(arguments);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("type", kyberType(kind.path));
+        body.put("dxl", dxl);
+        if (kind.singleton) {
+            if (present(arguments, "name")) {
+                throw new IllegalArgumentException(kind.path + " has no element name");
+            }
+        } else if (present(arguments, "name")) {
+            body.put("name", Json.string(arguments.get("name")));
+        }
+        String query = KyberClient.query("nsfPath", nsf)
+                + "&" + KyberClient.query("type", kyberType(kind.path));
+        if (present(arguments, "name") && !kind.singleton) {
+            query += "&" + KyberClient.query("name", Json.string(arguments.get("name")));
+        }
+        return finish(nsf, writer.exchange(
+                "PUT",
+                "/api/kyber-v1/upsert?" + query,
+                Json.write(body),
+                JSON));
+    }
+
+    private static String structureType(Map<String, Object> arguments, Set<String> allowed, String label) {
+        String type = kyberType(required(arguments, "type"));
+        if (!allowed.contains(type)) {
+            throw new IllegalArgumentException("type must be " + label);
+        }
+        return type;
+    }
+
+    private static Map<String, Object> normalizeDiffSide(Map<String, Object> side) {
+        Map<String, Object> copy = new LinkedHashMap<>(side);
+        if (present(copy, "type")) {
+            copy.put("type", kyberType(Json.string(copy.get("type"))));
+        }
+        return copy;
     }
 
     private String listTemplates(Map<String, Object> arguments) {
