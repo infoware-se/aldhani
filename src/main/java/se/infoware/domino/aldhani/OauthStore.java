@@ -162,7 +162,25 @@ final class OauthStore {
         body.put("authorization_servers", List.of(origin + "/oauth"));
         body.put("scopes_supported", List.of(SCOPE));
         body.put("bearer_methods_supported", List.of("header"));
+        // Domino may consume Authorization: Bearer before /mcp. Prefer these without site OIDC trust.
+        body.put("aldhani_authorization_schemes", List.of("Aldhani"));
+        body.put("aldhani_authorization_headers", List.of("Authorization", "X-Aldhani-Token"));
+        body.put("aldhani_access_cookie", AccessCookie.NAME);
+        body.put("aldhani_domino_note",
+                "On Domino HTTP without Internet Site OIDC Bearer trust, send access_token as "
+                        + "Authorization: Aldhani <token> or X-Aldhani-Token, or reuse the aldhani_at cookie "
+                        + "from the token response. Do not rely on Authorization: Bearer reaching /mcp.");
         return body;
+    }
+
+    /** Extra token-response fields so MCP clients avoid Domino-swallowed Bearer. */
+    static void attachClientHints(Map<String, Object> body) {
+        body.put("aldhani_authorization", "Aldhani");
+        body.put("aldhani_header", "X-Aldhani-Token");
+        body.put("aldhani_access_cookie", AccessCookie.NAME);
+        body.put("aldhani_usage",
+                "Send access_token as Authorization: Aldhani <access_token> or X-Aldhani-Token: <access_token>. "
+                        + "Authorization: Bearer may never reach Aldhani on Domino without OIDC site trust.");
     }
 
     Map<String, Object> jwks() {
