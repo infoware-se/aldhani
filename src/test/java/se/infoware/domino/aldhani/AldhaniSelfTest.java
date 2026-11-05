@@ -3,6 +3,7 @@ package se.infoware.domino.aldhani;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -734,6 +735,13 @@ public final class AldhaniSelfTest {
         Map<String, Object> resource = OauthStore.resource("https://domino.example");
         expect("https://domino.example/mcp", resource.get("resource"));
         expect(List.of("https://domino.example/oauth"), resource.get("authorization_servers"));
+        expect(List.of("Aldhani"), resource.get("aldhani_authorization_schemes"));
+        expect(AccessCookie.NAME, resource.get("aldhani_access_cookie"));
+        Map<String, Object> hints = new LinkedHashMap<>();
+        hints.put("access_token", access.accessToken());
+        OauthStore.attachClientHints(hints);
+        expect("Aldhani", hints.get("aldhani_authorization"));
+        expect("X-Aldhani-Token", hints.get("aldhani_header"));
         try {
             store.exchangeCode("aldhani", "http://127.0.0.1/cb", null, verifier,
                     "https://domino.example/oauth", "https://domino.example");

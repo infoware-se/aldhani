@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 final class McpProtocol {
-    static final String VERSION = "0.1.19";
+    static final String VERSION = "0.1.20";
     private static final String LATEST_PROTOCOL = "2025-11-25";
     private static final Set<String> PROTOCOL_VERSIONS = Set.of(
             "2024-11-05",
@@ -860,7 +860,8 @@ final class McpProtocol {
                 + "debug_kyber shows the last Kyber path and HTTP status without tokens. "
                 + "Database delete, a full design import, and an ACL replacement are not tools. "
                 + "Prompts review_design and explain_design say how to read one element. "
-                + "Send the caller token as Authorization: Aldhani. ";
+                + "Send the caller token as Authorization: Aldhani or X-Aldhani-Token "
+                + "(OAuth access tokens use the same headers; Domino may swallow Authorization: Bearer). ";
         if (tools.writesEnabled()) {
             return text + "create_database and create_database_from_template create a missing allowlisted NSF. "
                     + "set_db_title and set_kyber_enabled change database metadata. "

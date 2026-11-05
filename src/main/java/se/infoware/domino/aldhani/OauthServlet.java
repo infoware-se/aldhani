@@ -56,7 +56,11 @@ public class OauthServlet extends HttpServlet {
                 return;
             }
             if (path.endsWith("/token")) {
-                writeJson(response, 200, Json.write(token(form, origin(request))));
+                Map<String, Object> issued = token(form, origin(request));
+                String accessToken = Json.string(issued.get("access_token"));
+                long expires = issued.get("expires_in") instanceof Number number ? number.longValue() : 600L;
+                AccessCookie.attach(response, accessToken, expires, AccessCookie.secureRequest(request));
+                writeJson(response, 200, Json.write(issued));
                 return;
             }
             if (path.endsWith("/register")) {
@@ -98,6 +102,7 @@ public class OauthServlet extends HttpServlet {
         body.put("expires_in", access.expiresIn());
         body.put("refresh_token", access.refreshToken());
         body.put("scope", OauthStore.SCOPE);
+        OauthStore.attachClientHints(body);
         return body;
     }
 
@@ -162,6 +167,11 @@ public class OauthServlet extends HttpServlet {
                 <body>
                 <h1>Aldhani</h1>
                 %s
+                <p>Enter the Aldhani caller token from aldhani.json (<code>bearerToken</code>).</p>
+                <p>After the client exchanges the code, send the access token as
+                <code>Authorization: Aldhani &lt;access_token&gt;</code> or
+                <code>X-Aldhani-Token</code>. Domino may consume <code>Authorization: Bearer</code>
+                unless the Internet Site trusts this server as an OIDC provider.</p>
                 <form method="post">
                 <input type="hidden" name="client_id" value="%s">
                 <input type="hidden" name="redirect_uri" value="%s">

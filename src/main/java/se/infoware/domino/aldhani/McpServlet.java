@@ -68,7 +68,10 @@ public class McpServlet extends HttpServlet {
         if (!authorized(request)) {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             String origin = PublicOrigin.of(request, configuredOrigin());
-            response.setHeader("WWW-Authenticate", "Aldhani realm=\"aldhani\"");
+            response.setHeader("WWW-Authenticate",
+                    "Aldhani realm=\"aldhani\", error=\"invalid_token\", "
+                            + "error_description=\"Send Authorization: Aldhani <token> or X-Aldhani-Token "
+                            + "(or the aldhani_at cookie). Domino may consume Authorization: Bearer.\"");
             response.addHeader("WWW-Authenticate",
                     "Bearer realm=\"aldhani\", resource_metadata=\"" + origin + "/.well-known/oauth-protected-resource/mcp\"");
             writeJson(response, "{\"error\":\"Unauthorized\"}");
@@ -185,8 +188,8 @@ public class McpServlet extends HttpServlet {
      * Session authentication on Domino consumes {@code Authorization: Basic}. An opaque
      * {@code Authorization: Bearer} is intercepted too, unless the bearer is a JWT this
      * server signed and the internet site trusts Aldhani as its OIDC provider.
-     * {@code Authorization: Aldhani} and {@code X-Aldhani-Token} remain direct checks
-     * against {@code bearerToken}.
+     * Prefer {@code Authorization: Aldhani}, {@code X-Aldhani-Token}, or the
+     * {@code aldhani_at} cookie — those reach the servlet without Domino OIDC config.
      */
     private static String tokenFrom(HttpServletRequest request) {
         String header = request.getHeader("Authorization");
@@ -200,11 +203,13 @@ public class McpServlet extends HttpServlet {
             }
         }
         String custom = request.getHeader("X-Aldhani-Token");
-        if (custom == null) {
-            return null;
+        if (custom != null) {
+            String token = custom.trim();
+            if (!token.isEmpty()) {
+                return token;
+            }
         }
-        String token = custom.trim();
-        return token.isEmpty() ? null : token;
+        return AccessCookie.read(request);
     }
 
     private static String schemeToken(String header, String scheme) {

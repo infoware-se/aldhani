@@ -8,7 +8,7 @@ An MCP server for an AI agent that creates, reads, updates, and deletes Domino d
 
 Aldhani is an MCP server for HCL Domino design. It runs as an OSGi servlet on the Domino HTTP task and answers MCP at `POST /mcp`. Every design call is a Kyber call on DRAPI. Kyber remains the API that changes design. Writes are off unless `allowWrite` is true.
 
-Version 0.1.19. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
+Version 0.1.20. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
 
 Design API: [Kyber](https://github.com/infoware-se/kyber). Deploy: [Yavin](https://github.com/infoware-se/yavin). Releases: [jar attachments](https://github.com/infoware-se/aldhani/releases). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.md](SECURITY.md).
 
@@ -81,7 +81,9 @@ A tool result is text. A body over 100 000 characters is returned as JSON with `
 
 Kyber is the design API. This section is Aldhani's own backlog: MCP, allowlist, writes policy, repo sync, smoke, and wrapping Kyber helpers that agents still invent from inventory loops. Aldhani only wraps what Kyber exposes. Remaining Kyber-side work is tracked in [Kyber's Improvements](https://github.com/infoware-se/kyber#improvements).
 
-Bearer login. Aldhani already issues an RS256 access token, and `POST /mcp` accepts `Authorization: Bearer` when the token is one it signed. Domino's HTTP task swallows that header and returns the login page until the internet site trusts Aldhani as an OIDC provider and has Bearer authentication enabled. The discovery document Domino reads is `GET /oauth/.well-known/openid-configuration`, and the key is `GET /oauth/jwks`. Until that trust is in place, clients keep using `Authorization: Aldhani`.
+Bearer / OIDC without Domino site config. Prefer `Authorization: Aldhani` or `X-Aldhani-Token` (static `bearerToken` or an OAuth access JWT). The token endpoint also sets an `aldhani_at` HttpOnly cookie that `/mcp` accepts. Domino may consume `Authorization: Bearer` until the Internet Site trusts Aldhani as an OIDC provider; resource metadata and the token response document the Aldhani headers so clients need no Domino admin change. Optional upgrade: enable Domino Bearer + OIDC trust so `Authorization: Bearer` reaches the servlet.
+
+Shipped in 0.1.20. OAuth/MCP auth works without Domino OIDC site trust: token response hints + `aldhani_at` cookie, 401/`resource` metadata prefer `Authorization: Aldhani` / `X-Aldhani-Token`.
 
 Shipped in 0.1.19. `compare_inventories` diffs two allowlisted NSF inventories. Write tools accept `dxlParts` for oversized DXL. `repoRoot` may be relative to the Domino data directory. Design writes without `repoRoot` return `repoSync.skipped` with an actionable reason.
 
@@ -114,7 +116,7 @@ DRAPI's data port can stay unpublished. Aldhani calls it from the same machine. 
 .\build.ps1
 ```
 
-The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.19.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
+The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.20.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
 
 `target\` is gitignored.
 
@@ -122,8 +124,8 @@ The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `t
 
 The HTTP task loads the feature only when it is listed in `platform.xml`. The applications site on Domino uses the `USER-EXCLUDE` policy, and Equinox reads the feature as a directory, so copying a jar into `plugins` is not enough. `install.ps1` does three things:
 
-- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.19.jar`
-- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.19\`
+- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.20.jar`
+- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.20\`
 - adds the feature under the applications site in `domino\workspace\.config\org.eclipse.update\platform.xml`
 
 Stop HTTP first. On shutdown the HTTP task rewrites `platform.xml` from memory, so an edit made while HTTP is running is lost. `tell http restart` does not reload this configuration.
@@ -193,8 +195,9 @@ A missing or wrong token returns 401. The challenge is `Aldhani`, and also `Bear
 
 Two ways reach the servlet:
 
-- `Authorization: Aldhani <token>` or `X-Aldhani-Token`, compared with `bearerToken`. This is the direct header. Domino session authentication does not consume it.
-- OAuth 2.1 with PKCE. Discovery is under `/oauth`. The authorize page asks for the same `bearerToken`. The access token is an RS256 JWT, valid for 10 minutes, with scope `aldhani` and `Domino.user.all`. Domino's HTTP task only forwards `Authorization: Bearer` when that JWT passes its own OIDC check, so the internet site has to trust this server as an OIDC provider and have Bearer token authentication enabled. Until then, a client that sends Bearer gets Domino's login page. The signing key is `aldhani-oauth.pem` beside `aldhani.json`. It is created on first use and is not part of the jar.
+- `Authorization: Aldhani <token>` or `X-Aldhani-Token`, compared with `bearerToken` or a JWT Aldhani signed. Domino session authentication does not consume these. Prefer them for Cursor and other MCP hosts.
+- Cookie `aldhani_at` (HttpOnly, set by `POST /oauth/token`) carries the same access JWT for browser-style clients without Domino OIDC config.
+- OAuth 2.1 with PKCE. Discovery is under `/oauth`. The authorize page asks for `bearerToken`. The access token is an RS256 JWT (10 minutes, scopes `aldhani` and `Domino.user.all`). Token JSON keeps `token_type: Bearer` for OAuth clients but adds `aldhani_*` hints to send the token as `Authorization: Aldhani` / `X-Aldhani-Token`. Optional: trust this host as an OIDC provider on the Internet Site so raw `Authorization: Bearer` also reaches `/mcp`. Signing key: `aldhani-oauth.pem` beside `aldhani.json` (created on first use).
 
 The access token is a Domino bearer for `oauthSubject` (or `kyberUser`) for those 10 minutes. It is not limited to `/mcp`. The refresh token is opaque, lasts 12 hours, and cannot be used against the rest of the server. An authorization code lasts 2 minutes and can be exchanged once.
 
