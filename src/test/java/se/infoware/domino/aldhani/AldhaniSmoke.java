@@ -117,6 +117,7 @@ public final class AldhaniSmoke {
         List<String> expected = new ArrayList<>(List.of(
                 "list_databases", "list_design", "get_design", "export_design", "inventory_design",
                 "search_design", "list_templates", "preview_starter", "get_content",
+                "list_fields", "list_columns", "get_design_summary", "diff_design", "list_agents_schedule",
                 "repo_path", "repo_status", "sync_repo", "debug_kyber"));
         boolean writes = toolNames.contains("create_design");
         if (writes) {
@@ -124,7 +125,7 @@ public final class AldhaniSmoke {
                     "create_database", "create_database_from_template", "set_db_title", "set_kyber_enabled",
                     "create_design", "update_design", "patch_design",
                     "copy_design", "rename_design", "update_content", "recompile_lotusscript",
-                    "inherit_design", "delete_design", "validate_design"));
+                    "inherit_design", "import_design_element", "delete_design", "validate_design"));
         }
         expect(expected, toolNames);
         for (Object item : toolDefs) {
@@ -250,6 +251,7 @@ public final class AldhaniSmoke {
                     && !"patch_design".equals(name) && !"copy_design".equals(name)
                     && !"rename_design".equals(name) && !"update_content".equals(name)
                     && !"recompile_lotusscript".equals(name) && !"inherit_design".equals(name)
+                    && !"import_design_element".equals(name)
                     && !"delete_design".equals(name) && !"sync_repo".equals(name)
                     && !"create_database".equals(name) && !"create_database_from_template".equals(name)
                     && !"set_db_title".equals(name) && !"set_kyber_enabled".equals(name);
@@ -259,7 +261,7 @@ public final class AldhaniSmoke {
         if (!writes) {
             return;
         }
-        expect(true, toolDefs.size() == 27);
+        expect(true, toolDefs.size() == 33);
     }
 
     private static void assertListLimit(HttpClient http, String url, String token) {

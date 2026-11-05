@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 final class McpProtocol {
-    static final String VERSION = "0.1.17";
+    static final String VERSION = "0.1.18";
     private static final String LATEST_PROTOCOL = "2025-11-25";
     private static final Set<String> PROTOCOL_VERSIONS = Set.of(
             "2024-11-05",
@@ -368,6 +368,67 @@ final class McpProtocol {
                 List.of("type"),
                 read));
         definitions.add(tool(
+                "list_fields",
+                "Lists field name, type, and kind on one form or subform without full DXL. "
+                        + "Prefer this before get_design when inspecting form structure.",
+                Map.of(
+                        "type", prop("string", "form or subform."),
+                        "name", prop("string", "Element name."),
+                        "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
+                List.of("type", "name"),
+                read));
+        definitions.add(tool(
+                "list_columns",
+                "Lists column title, formula, and flags on one view or folder without full DXL. "
+                        + "Prefer this before get_design when inspecting view structure.",
+                Map.of(
+                        "type", prop("string", "view or folder."),
+                        "name", prop("string", "Element name."),
+                        "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
+                List.of("type", "name"),
+                read));
+        definitions.add(tool(
+                "get_design_summary",
+                "Compact inventory for one design note: aliases, kind, comment, agent trigger/schedule, "
+                        + "field or column counts, view forms. DXL omitted unless includeDxl is true. "
+                        + "Pass type and name (or type alone for a database note), or unid or noteId alone.",
+                Map.of(
+                        "type", prop("string", typeDescription()),
+                        "name", prop("string", "Element name. Omit for a database note."),
+                        "unid", prop("string", "Note UNID. Use instead of type and name."),
+                        "noteId", prop("string", "Note id. Use instead of type and name."),
+                        "includeDxl", prop("boolean", "Include DXL. Default false."),
+                        "nsfPath", prop("string", "NSF path. Defaults to the only allowed database."),
+                        "part", prop("integer", "Zero-based page when includeDxl returned a large body.")),
+                List.of(),
+                read));
+        definitions.add(tool(
+                "diff_design",
+                "Compares two live notes (type, name, toName, optional toType) or a live note to proposed DXL. "
+                        + "With dxl or nested left/right objects, posts to Kyber; otherwise GETs two named notes. "
+                        + "Returns structured field/column/comment changes and DXL line hunks.",
+                Map.of(
+                        "type", prop("string", "Left note type for flat compare."),
+                        "name", prop("string", "Left note name for flat compare."),
+                        "toName", prop("string", "Right note name when comparing two live notes."),
+                        "toType", prop("string", "Right note type when different from type."),
+                        "dxl", prop("string", "Proposed right-hand DXL. Triggers POST /diff."),
+                        "left", prop("object", "Nested left side: type+name or dxl."),
+                        "right", prop("object", "Nested right side: type+name or dxl."),
+                        "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
+                List.of(),
+                read));
+        definitions.add(tool(
+                "list_agents_schedule",
+                "Lists agents with trigger and schedule metadata for an NSF, without full DXL. "
+                        + "Optional trigger filter and scheduledOnly=true for scheduled agents only.",
+                Map.of(
+                        "trigger", prop("string", "Filter by trigger, for example schedule, manual, or agentlist."),
+                        "scheduledOnly", prop("boolean", "When true, only agents with a schedule."),
+                        "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
+                List.of(),
+                read));
+        definitions.add(tool(
                 "repo_path",
                 "Package Explorer path for one design file. "
                         + "The folder is the Domino Designer folder, not the API name. "
@@ -539,6 +600,19 @@ final class McpProtocol {
                     List.of(),
                     hints(false, false, false)));
             definitions.add(tool(
+                    "import_design_element",
+                    "Creates or replaces one design note from DXL via Kyber PUT /upsert. "
+                            + "Preserves note UNID on replace. Not a full NSF import and does not compileAll. "
+                            + "acl cannot be replaced. Prefer create_design or update_design when the note "
+                            + "existence is already known.",
+                    Map.of(
+                            "type", prop("string", typeDescription()),
+                            "name", prop("string", "Element name. Optional; defaults to the name in DXL. Omit for a database note."),
+                            "dxl", prop("string", "DXL to create or replace."),
+                            "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
+                    List.of("type", "dxl"),
+                    hints(false, false, true)));
+            definitions.add(tool(
                     "delete_design",
                     "Deletes one named design element, or about, using, databasescript, or xspproperties. "
                             + "acl, applicationproperties, and dbicon cannot be deleted.",
@@ -595,12 +669,14 @@ final class McpProtocol {
             case "sync_repo" -> syncRepoSchema();
             case "debug_kyber" -> debugKyberSchema();
             case "validate_design" -> validateSchema();
-            case "list_design", "get_design", "export_design", "get_content", "preview_starter" ->
+            case "list_design", "get_design", "export_design", "get_content", "preview_starter",
+                    "list_fields", "list_columns", "get_design_summary", "diff_design",
+                    "list_agents_schedule" ->
                     designObjectSchema();
             case "list_templates", "create_database", "create_database_from_template",
                     "set_db_title", "set_kyber_enabled", "recompile_lotusscript", "inherit_design",
                     "create_design", "update_design", "patch_design", "copy_design", "rename_design",
-                    "update_content", "delete_design" ->
+                    "update_content", "import_design_element", "delete_design" ->
                     objectSchema();
             default -> null;
         };
@@ -748,6 +824,8 @@ final class McpProtocol {
     private String instructions() {
         String text = "Aldhani is the MCP server for Domino design. Every design call goes to Kyber. "
                 + "Read with inventory_design, list_design, or search_design, then get_design for one element. "
+                + "get_design_summary, list_fields, and list_columns avoid full DXL when only structure is needed. "
+                + "diff_design compares two notes or a note to proposed DXL. list_agents_schedule lists agent triggers. "
                 + "get_design accepts type and name, or unid or noteId alone. "
                 + "When several databases are allowlisted, pass nsfPath or reuse the session default from the last call that named one. "
                 + "Resources: aldhani://types lists collections; aldhani://<nsf>/inventory is inventory without a tool call. "
@@ -764,8 +842,9 @@ final class McpProtocol {
         if (tools.writesEnabled()) {
             return text + "create_database and create_database_from_template create a missing allowlisted NSF. "
                     + "set_db_title and set_kyber_enabled change database metadata. "
-                    + "create_design (optional template), update_design, patch_design, copy_design, rename_design, "
-                    + "update_content, recompile_lotusscript, inherit_design, and delete_design change design. "
+                    + "create_design (optional template), update_design, import_design_element (upsert), patch_design, "
+                    + "copy_design, rename_design, update_content, recompile_lotusscript, inherit_design, "
+                    + "and delete_design change design. "
                     + "Residual notes use type designnote. "
                     + "validate_design writes nothing. acl cannot be replaced or deleted.";
         }
