@@ -118,6 +118,7 @@ public final class AldhaniSmoke {
                 "list_databases", "list_design", "get_design", "export_design", "inventory_design",
                 "search_design", "list_templates", "preview_starter", "get_content",
                 "list_fields", "list_columns", "get_design_summary", "diff_design", "list_agents_schedule",
+                "compare_inventories",
                 "repo_path", "repo_status", "sync_repo", "debug_kyber"));
         boolean writes = toolNames.contains("create_design");
         if (writes) {
@@ -261,7 +262,7 @@ public final class AldhaniSmoke {
         if (!writes) {
             return;
         }
-        expect(true, toolDefs.size() == 33);
+        expect(true, toolDefs.size() == 34);
     }
 
     private static void assertListLimit(HttpClient http, String url, String token) {

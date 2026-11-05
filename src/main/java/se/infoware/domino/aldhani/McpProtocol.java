@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 final class McpProtocol {
-    static final String VERSION = "0.1.18";
+    static final String VERSION = "0.1.19";
     private static final String LATEST_PROTOCOL = "2025-11-25";
     private static final Set<String> PROTOCOL_VERSIONS = Set.of(
             "2024-11-05",
@@ -429,6 +429,16 @@ final class McpProtocol {
                 List.of(),
                 read));
         definitions.add(tool(
+                "compare_inventories",
+                "Compares inventory_design for two allowlisted NSFs. "
+                        + "Returns onlyInLeft, onlyInRight, changed (same type/name, different unid), and sameCount. "
+                        + "Does not fetch DXL.",
+                Map.of(
+                        "nsfPath", prop("string", "Left NSF path. Defaults to the only allowed database."),
+                        "toNsfPath", prop("string", "Right NSF path. Must be allowlisted and different from nsfPath.")),
+                List.of("toNsfPath"),
+                read));
+        definitions.add(tool(
                 "repo_path",
                 "Package Explorer path for one design file. "
                         + "The folder is the Domino Designer folder, not the API name. "
@@ -458,7 +468,8 @@ final class McpProtocol {
                         + "Omit nsfPath to refresh every NSF in repoNsf. "
                         + "A design write or delete does this for the NSF it changed when that NSF is in repoNsf, "
                         + "so stale DXL files are removed. "
-                        + "Fails with an actionable message when repoRoot is unset.",
+                        + "Fails with an actionable message when repoRoot is unset. "
+                        + "repoRoot may be absolute or relative to the Domino data directory.",
                 Map.of(
                         "nsfPath", prop("string", "NSF to refresh. Omit to refresh every NSF in repoNsf.")),
                 List.of(),
@@ -523,21 +534,26 @@ final class McpProtocol {
                             "type", prop("string", typeDescription()),
                             "name", prop("string", "Element name. Omit for a creatable database note."),
                             "kind", prop("string", "Agent, script library, or Java source kind. Only on create."),
-                            "template", prop("string", "Starter name from list_templates. Not with dxl."),
-                            "dxl", prop("string", "DXL. Omit to copy the starter."),
+                            "template", prop("string", "Starter name from list_templates. Not with dxl or dxlParts."),
+                            "dxl", prop("string", "DXL. Omit to copy the starter. Not with dxlParts."),
+                            "dxlParts", prop("array",
+                                    "Ordered DXL fragments joined before the write when one string would be too large."),
                             "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
                     List.of("type"),
                     hints(false, false, false)));
             definitions.add(tool(
                     "update_design",
                     "Replaces one existing design element or database note with DXL. "
-                            + "acl cannot be replaced. applicationproperties and dbicon can.",
+                            + "acl cannot be replaced. applicationproperties and dbicon can. "
+                            + "Use dxlParts instead of dxl when the host truncates a single large string.",
                     Map.of(
                             "type", prop("string", typeDescription()),
                             "name", prop("string", "Element name. Omit for a database note."),
-                            "dxl", prop("string", "Replacement DXL."),
+                            "dxl", prop("string", "Replacement DXL. Not with dxlParts."),
+                            "dxlParts", prop("array",
+                                    "Ordered DXL fragments joined before the write when one string would be too large."),
                             "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
-                    List.of("type", "dxl"),
+                    List.of("type"),
                     hints(false, false, true)));
             definitions.add(tool(
                     "patch_design",
@@ -604,13 +620,15 @@ final class McpProtocol {
                     "Creates or replaces one design note from DXL via Kyber PUT /upsert. "
                             + "Preserves note UNID on replace. Not a full NSF import and does not compileAll. "
                             + "acl cannot be replaced. Prefer create_design or update_design when the note "
-                            + "existence is already known.",
+                            + "existence is already known. Use dxlParts for oversized DXL strings.",
                     Map.of(
                             "type", prop("string", typeDescription()),
                             "name", prop("string", "Element name. Optional; defaults to the name in DXL. Omit for a database note."),
-                            "dxl", prop("string", "DXL to create or replace."),
+                            "dxl", prop("string", "DXL to create or replace. Not with dxlParts."),
+                            "dxlParts", prop("array",
+                                    "Ordered DXL fragments joined before the upsert when one string would be too large."),
                             "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
-                    List.of("type", "dxl"),
+                    List.of("type"),
                     hints(false, false, true)));
             definitions.add(tool(
                     "delete_design",
@@ -624,10 +642,12 @@ final class McpProtocol {
                     hints(false, true, true)));
             definitions.add(tool(
                     "validate_design",
-                    "Checks a design payload with Kyber and writes nothing.",
+                    "Checks a design payload with Kyber and writes nothing. "
+                            + "Each element may use dxlParts instead of dxl for a large body.",
                     Map.of(
                             "elements", prop("array",
-                                    "Objects with type, and name, dxl, or delete. dxl is required unless delete is true."),
+                                    "Objects with type, and name, dxl or dxlParts, or delete. "
+                                            + "dxl/dxlParts required unless delete is true."),
                             "nsfPath", prop("string", "NSF path. Defaults to the only allowed database.")),
                     List.of("elements"),
                     read));
@@ -671,7 +691,7 @@ final class McpProtocol {
             case "validate_design" -> validateSchema();
             case "list_design", "get_design", "export_design", "get_content", "preview_starter",
                     "list_fields", "list_columns", "get_design_summary", "diff_design",
-                    "list_agents_schedule" ->
+                    "list_agents_schedule", "compare_inventories" ->
                     designObjectSchema();
             case "list_templates", "create_database", "create_database_from_template",
                     "set_db_title", "set_kyber_enabled", "recompile_lotusscript", "inherit_design",
@@ -826,6 +846,8 @@ final class McpProtocol {
                 + "Read with inventory_design, list_design, or search_design, then get_design for one element. "
                 + "get_design_summary, list_fields, and list_columns avoid full DXL when only structure is needed. "
                 + "diff_design compares two notes or a note to proposed DXL. list_agents_schedule lists agent triggers. "
+                + "compare_inventories diffs two allowlisted NSF inventories without DXL. "
+                + "Large write bodies may use dxlParts (ordered fragments) instead of one dxl string. "
                 + "get_design accepts type and name, or unid or noteId alone. "
                 + "When several databases are allowlisted, pass nsfPath or reuse the session default from the last call that named one. "
                 + "Resources: aldhani://types lists collections; aldhani://<nsf>/inventory is inventory without a tool call. "
