@@ -23,7 +23,8 @@ final class RepoSync {
     static Map<String, Object> status(AldhaniConfig config) {
         if (config.repoRoot == null) {
             throw new IllegalArgumentException(
-                    "repoRoot is not set in aldhani.json; set it to an absolute directory then call repo_status again");
+                    "repoRoot is not set in aldhani.json; set it to an absolute directory "
+                            + "(or relative to the Domino data directory) then call repo_status again");
         }
         Path repoRoot = Path.of(config.repoRoot).toAbsolutePath().normalize();
         Map<String, Object> result = new LinkedHashMap<>();
@@ -68,7 +69,8 @@ final class RepoSync {
     static Map<String, Object> write(AldhaniConfig config, KyberGet kyber, String nsfPath) {
         if (config.repoRoot == null) {
             throw new IllegalArgumentException(
-                    "repoRoot is not set in aldhani.json; set it to an absolute directory then call sync_repo again");
+                    "repoRoot is not set in aldhani.json; set it to an absolute directory "
+                            + "(or relative to the Domino data directory) then call sync_repo again");
         }
         String nsf = AldhaniConfig.normalizeNsf(nsfPath);
         if (!config.allows(nsf)) {

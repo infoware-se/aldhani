@@ -156,7 +156,7 @@ public final class AldhaniSelfTest {
         RecordingKyber kyber = new RecordingKyber();
         DesignTools tools = new DesignTools(sample(), kyber);
         expect(false, tools.writesEnabled());
-        expect(18, tools.names().size());
+        expect(19, tools.names().size());
         DesignTools.ToolResult refused = tools.call("create_design", Map.of("type", "form", "name", "Main"));
         expect(true, refused.error());
         expect(0, kyber.calls.size());
@@ -164,7 +164,7 @@ public final class AldhaniSelfTest {
         McpProtocol.HttpReply listed = protocol.handle("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list"}""");
         List<?> definitions = (List<?>) Json.object(Json.object(Json.parse(listed.body())).get("result")).get("tools");
-        expect(18, definitions.size());
+        expect(19, definitions.size());
         expect(Boolean.TRUE, Json.object(Json.object(definitions.get(1)).get("annotations")).get("readOnlyHint"));
         McpProtocol.HttpReply call = protocol.handle("""
                 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_design","arguments":{"type":"form","name":"Main"}}}""");
@@ -177,7 +177,7 @@ public final class AldhaniSelfTest {
         kyber.reply = "{\"ok\":true}";
         DesignTools tools = new DesignTools(writable(), kyber);
         expect(true, tools.writesEnabled());
-        expect(33, tools.names().size());
+        expect(34, tools.names().size());
 
         expect(false, tools.call("create_design", Map.of("type", "form", "name", "Main")).error());
         expect("POST /api/kyber-v1/forms?nsfPath=aldhanitest.nsf&name=Main", kyber.calls.get(kyber.calls.size() - 1));
@@ -223,11 +223,11 @@ public final class AldhaniSelfTest {
         McpProtocol.HttpReply listed = protocol.handle("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list"}""");
         List<?> definitions = (List<?>) Json.object(Json.object(Json.parse(listed.body())).get("result")).get("tools");
-        expect(33, definitions.size());
-        Map<String, Object> delete = Json.object(definitions.get(31));
+        expect(34, definitions.size());
+        Map<String, Object> delete = Json.object(definitions.get(32));
         expect("delete_design", delete.get("name"));
         expect(Boolean.TRUE, Json.object(delete.get("annotations")).get("destructiveHint"));
-        expect(Boolean.TRUE, Json.object(Json.object(definitions.get(32)).get("annotations")).get("readOnlyHint"));
+        expect(Boolean.TRUE, Json.object(Json.object(definitions.get(33)).get("annotations")).get("readOnlyHint"));
     }
 
     private static void wrapsKyberHelpers() {
@@ -363,6 +363,44 @@ public final class AldhaniSelfTest {
         expect(true, kyber.body.contains("\"dxl\""));
         expect(true, tools.call("import_design_element", Map.of(
                 "type", "acl", "dxl", "<acl/>")).error());
+
+        expect(false, tools.call("update_design", Map.of(
+                "type", "form", "name", "Main", "dxlParts", List.of("<form", " name='Main'/>"))).error());
+        expect("PUT /api/kyber-v1/forms/Main?nsfPath=aldhanitest.nsf",
+                kyber.calls.get(kyber.calls.size() - 1));
+        expect("<form name='Main'/>", kyber.body);
+        expect(true, tools.call("update_design", Map.of(
+                "type", "form", "name", "Main", "dxl", "<form/>", "dxlParts", List.of("<form/>"))).error());
+
+        DesignTools dualTools = new DesignTools(AldhaniConfig.parse("""
+                {
+                  "kyberBaseUrl": "https://domino.example",
+                  "kyberUser": "reader",
+                  "kyberPassword": "secret",
+                  "bearerToken": "token",
+                  "allowedNsf": ["aldhanitest.nsf", "app.nsf"]
+                }"""), path -> {
+            if (path.contains("nsfPath=app.nsf")) {
+                return """
+                        {"nsfPath":"app.nsf","elements":[
+                          {"type":"form","name":"Main","unid":"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"},
+                          {"type":"view","name":"OnlyRight","unid":"DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"}
+                        ]}""";
+            }
+            return """
+                    {"nsfPath":"aldhanitest.nsf","elements":[
+                      {"type":"form","name":"Main","unid":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+                      {"type":"form","name":"OnlyLeft","unid":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}
+                    ]}""";
+        });
+        DesignTools.ToolResult compared = dualTools.call("compare_inventories", Map.of(
+                "nsfPath", "aldhanitest.nsf", "toNsfPath", "app.nsf"));
+        expect(false, compared.error());
+        Map<String, Object> diff = Json.object(Json.parse(compared.text()));
+        expect(1, ((List<?>) diff.get("onlyInLeft")).size());
+        expect(1, ((List<?>) diff.get("onlyInRight")).size());
+        expect(1, ((List<?>) diff.get("changed")).size());
+        expect(0, ((Number) diff.get("sameCount")).intValue());
     }
 
     private static void grantsWritesPerNsf() {

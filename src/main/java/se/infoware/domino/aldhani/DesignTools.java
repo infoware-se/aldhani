@@ -35,11 +35,13 @@ final class DesignTools {
             "list_databases", "list_design", "get_design", "export_design", "inventory_design",
             "search_design", "list_templates", "preview_starter", "get_content",
             "list_fields", "list_columns", "get_design_summary", "diff_design", "list_agents_schedule",
+            "compare_inventories",
             "repo_path", "repo_status", "sync_repo", "debug_kyber");
     private static final Set<String> WRITE_NAMES = Set.of(
             "list_databases", "list_design", "get_design", "export_design", "inventory_design",
             "search_design", "list_templates", "preview_starter", "get_content",
             "list_fields", "list_columns", "get_design_summary", "diff_design", "list_agents_schedule",
+            "compare_inventories",
             "repo_path", "repo_status", "sync_repo", "debug_kyber",
             "create_database", "create_database_from_template", "set_db_title", "set_kyber_enabled",
             "create_design", "update_design", "patch_design",
@@ -129,6 +131,7 @@ final class DesignTools {
                 case "get_design_summary" -> getDesignSummary(arguments);
                 case "diff_design" -> diffDesign(arguments);
                 case "list_agents_schedule" -> listAgentsSchedule(arguments);
+                case "compare_inventories" -> compareInventories(arguments);
                 case "repo_path" -> RepoLayout.describe(arguments);
                 case "repo_status" -> Json.write(RepoSync.status(config));
                 case "sync_repo" -> syncRepo(arguments);
@@ -235,7 +238,7 @@ final class DesignTools {
         String dxl = dxl(arguments, false);
         boolean hasTemplate = present(arguments, "template");
         if (hasTemplate && dxl != null && !dxl.isBlank()) {
-            throw new IllegalArgumentException("template cannot be combined with dxl");
+            throw new IllegalArgumentException("template cannot be combined with dxl or dxlParts");
         }
         if (kind.singleton) {
             if (!CREATABLE_NOTES.contains(kind.path)) {
@@ -301,8 +304,8 @@ final class DesignTools {
         DesignKind kind = resolve(required(arguments, "type"));
         String nsf = writableNsf(arguments);
         rejectKind(arguments);
-        if (present(arguments, "dxl")) {
-            throw new IllegalArgumentException("delete_design does not take dxl");
+        if (present(arguments, "dxl") || arguments.get("dxlParts") instanceof List<?>) {
+            throw new IllegalArgumentException("delete_design does not take dxl or dxlParts");
         }
         if (kind.singleton) {
             if (!DELETABLE_NOTES.contains(kind.path)) {
@@ -323,6 +326,14 @@ final class DesignTools {
 
     private String finish(String nsf, String body) {
         if (!config.syncs(nsf)) {
+            if (config.repoRoot == null) {
+                Map<String, Object> skipped = new LinkedHashMap<>();
+                skipped.put("skipped", true);
+                skipped.put("reason",
+                        "repoRoot is not set in aldhani.json; Domino was updated but no Package Explorer tree was refreshed. "
+                                + "Set repoRoot (absolute, or relative to the Domino data directory) and call sync_repo.");
+                return withRepoSync(body, skipped);
+            }
             return body;
         }
         Map<String, Object> sync;
@@ -336,6 +347,10 @@ final class DesignTools {
             sync.put("nsfPath", nsf);
             sync.put("error", ex.getMessage() == null ? "repo sync failed" : ex.getMessage());
         }
+        return withRepoSync(body, sync);
+    }
+
+    private static String withRepoSync(String body, Map<String, Object> sync) {
         try {
             Object parsed = Json.parse(body);
             if (parsed instanceof Map<?, ?> map) {
@@ -368,7 +383,8 @@ final class DesignTools {
     private String syncRepo(Map<String, Object> arguments) {
         if (config.repoRoot == null) {
             throw new IllegalArgumentException(
-                    "repoRoot is not set in aldhani.json; set it to an absolute directory then call sync_repo again");
+                    "repoRoot is not set in aldhani.json; set it to an absolute directory "
+                            + "(or a path relative to the Domino data directory) then call sync_repo again");
         }
         String given = Json.string(arguments.get("nsfPath"));
         List<String> targets = new ArrayList<>();
@@ -414,17 +430,14 @@ final class DesignTools {
                 throw new IllegalArgumentException("each element needs a type");
             }
             boolean deleting = Boolean.TRUE.equals(source.get("delete"));
-            String dxl = Json.string(source.get("dxl"));
-            if (!deleting && (dxl == null || dxl.isBlank())) {
-                throw new IllegalArgumentException("dxl is required unless delete is true");
-            }
             Map<String, Object> copy = new LinkedHashMap<>();
             copy.put("type", kyberType(type));
             if (source.containsKey("name")) {
                 copy.put("name", source.get("name"));
             }
-            if (dxl != null) {
-                copy.put("dxl", dxl);
+            String piece = dxl(source, !deleting);
+            if (piece != null) {
+                copy.put("dxl", piece);
             }
             if (source.containsKey("delete")) {
                 copy.put("delete", source.get("delete"));
@@ -623,6 +636,82 @@ final class DesignTools {
             query += "&scheduledOnly=true";
         }
         return kyber.get("/api/kyber-v1/schedules?" + query);
+    }
+
+    private String compareInventories(Map<String, Object> arguments) {
+        String leftNsf = nsf(arguments);
+        String rightRaw = required(arguments, "toNsfPath");
+        String rightNsf = allowlisted(rightRaw);
+        if (leftNsf.equalsIgnoreCase(rightNsf)) {
+            throw new IllegalArgumentException("toNsfPath must name a different allowlisted NSF");
+        }
+        reportProgress("Inventory " + leftNsf, 0, 2);
+        Map<String, Map<String, Object>> left = inventoryIndex(leftNsf);
+        reportProgress("Inventory " + rightNsf, 1, 2);
+        Map<String, Map<String, Object>> right = inventoryIndex(rightNsf);
+        List<Object> onlyLeft = new ArrayList<>();
+        List<Object> onlyRight = new ArrayList<>();
+        List<Object> changed = new ArrayList<>();
+        List<Object> same = new ArrayList<>();
+        for (Map.Entry<String, Map<String, Object>> entry : left.entrySet()) {
+            Map<String, Object> other = right.get(entry.getKey());
+            if (other == null) {
+                onlyLeft.add(entry.getValue());
+                continue;
+            }
+            String leftUnid = Json.string(entry.getValue().get("unid"));
+            String rightUnid = Json.string(other.get("unid"));
+            if (leftUnid != null && rightUnid != null && leftUnid.equalsIgnoreCase(rightUnid)) {
+                same.add(entry.getValue());
+            } else {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("type", entry.getValue().get("type"));
+                if (entry.getValue().containsKey("name")) {
+                    row.put("name", entry.getValue().get("name"));
+                }
+                row.put("left", entry.getValue());
+                row.put("right", other);
+                changed.add(row);
+            }
+        }
+        for (Map.Entry<String, Map<String, Object>> entry : right.entrySet()) {
+            if (!left.containsKey(entry.getKey())) {
+                onlyRight.add(entry.getValue());
+            }
+        }
+        reportProgress("Finished compare_inventories", 2, 2);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("nsfPath", leftNsf);
+        result.put("toNsfPath", rightNsf);
+        result.put("onlyInLeft", onlyLeft);
+        result.put("onlyInRight", onlyRight);
+        result.put("changed", changed);
+        result.put("sameCount", same.size());
+        return Json.write(result);
+    }
+
+    private Map<String, Map<String, Object>> inventoryIndex(String nsf) {
+        String body = inventoryDesign(Map.of("nsfPath", nsf));
+        Map<String, Object> document = Json.object(Json.parse(body));
+        Object raw = document.get("elements");
+        Map<String, Map<String, Object>> index = new LinkedHashMap<>();
+        if (!(raw instanceof List<?> elements)) {
+            return index;
+        }
+        for (Object item : elements) {
+            if (!(item instanceof Map<?, ?>)) {
+                continue;
+            }
+            Map<String, Object> element = Json.object(item);
+            String type = Json.string(element.get("type"));
+            if (type == null || type.isBlank()) {
+                continue;
+            }
+            String name = Json.string(element.get("name"));
+            String key = AldhaniConfig.lower(type) + "\0" + (name == null ? "" : AldhaniConfig.lower(name));
+            index.put(key, element);
+        }
+        return index;
     }
 
     private String importDesignElement(Map<String, Object> arguments) {
@@ -1261,10 +1350,34 @@ final class DesignTools {
     }
 
     private static String dxl(Map<String, Object> arguments, boolean requiredDxl) {
+        Object partsRaw = arguments.get("dxlParts");
+        boolean hasParts = partsRaw instanceof List<?>;
         Object raw = arguments.get("dxl");
+        if (hasParts && raw != null) {
+            throw new IllegalArgumentException("pass dxl or dxlParts, not both");
+        }
+        if (hasParts) {
+            List<?> parts = (List<?>) partsRaw;
+            if (parts.isEmpty()) {
+                throw new IllegalArgumentException("dxlParts must not be empty");
+            }
+            StringBuilder joined = new StringBuilder();
+            for (Object part : parts) {
+                String text = Json.string(part);
+                if (text == null) {
+                    throw new IllegalArgumentException("dxlParts entries must be text");
+                }
+                joined.append(text);
+            }
+            String text = joined.toString();
+            if (requiredDxl && text.isBlank()) {
+                throw new IllegalArgumentException("dxl is required");
+            }
+            return text.isEmpty() ? null : text;
+        }
         if (raw == null) {
             if (requiredDxl) {
-                throw new IllegalArgumentException("dxl is required");
+                throw new IllegalArgumentException("dxl is required (or pass dxlParts for a large body)");
             }
             return null;
         }

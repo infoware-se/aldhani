@@ -98,7 +98,7 @@ final class AldhaniConfig {
                 writeNsf,
                 optional(root, "publicBaseUrl"),
                 optional(root, "oauthSubject"),
-                optional(root, "repoRoot"),
+                resolveRepoRoot(optional(root, "repoRoot")),
                 pathList(root, "repoNsf"));
         if (config.writeNsf != null) {
             for (String path : config.writeNsf) {
@@ -214,6 +214,21 @@ final class AldhaniConfig {
             return null;
         }
         return value.trim();
+    }
+
+    /**
+     * Absolute {@code repoRoot} is kept. A relative path is resolved against the Domino data
+     * directory (the same base as {@code aldhani.json}), not the MCP client workspace.
+     */
+    static String resolveRepoRoot(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        Path path = Path.of(raw.trim());
+        if (!path.isAbsolute()) {
+            path = dataDirectory().resolve(path);
+        }
+        return path.toAbsolutePath().normalize().toString();
     }
 
     private static String required(Map<String, Object> root, String key) {
