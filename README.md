@@ -8,7 +8,7 @@ An MCP server for an AI agent that creates, reads, updates, and deletes Domino d
 
 Aldhani is an MCP server for HCL Domino design. It runs as an OSGi servlet on the Domino HTTP task and answers MCP at `POST /mcp`. Every design call is a Kyber call on DRAPI. Kyber remains the API that changes design. Writes are off unless `allowWrite` is true.
 
-Version 0.1.20. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
+Version 0.1.21. It is an Infoware Solutions Svenska AB product and is published under [Apache-2.0](LICENSE). The sandbox database is `aldhanitest.nsf`. Kyber only lists a database whose catalog category is `KyberEnabled`.
 
 Design API: [Kyber](https://github.com/infoware-se/kyber). Deploy: [Yavin](https://github.com/infoware-se/yavin). Releases: [jar attachments](https://github.com/infoware-se/aldhani/releases). Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.md](SECURITY.md).
 
@@ -91,6 +91,8 @@ Prompts exist but many MCP hosts barely surface them. Session default `nsfPath`,
 
 ### Shipped
 
+Shipped in 0.1.21. Improvements split into Open / Shipped / Keep out. `aldhani.json.example` omits empty `repoNsf` / `repoRoot` so copy-paste does not disable sync; README warns that an empty `repoNsf` list syncs nothing.
+
 Shipped in 0.1.20. OAuth/MCP auth works without Domino OIDC site trust: token response hints + `aldhani_at` cookie, 401/`resource` metadata prefer `Authorization: Aldhani` / `X-Aldhani-Token`.
 
 Shipped in 0.1.19. `compare_inventories` diffs two allowlisted NSF inventories. Write tools accept `dxlParts` for oversized DXL. `repoRoot` may be relative to the Domino data directory. Design writes without `repoRoot` return `repoSync.skipped` with an actionable reason.
@@ -120,7 +122,7 @@ DRAPI's data port can stay unpublished. Aldhani calls it from the same machine. 
 .\build.ps1
 ```
 
-The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.20.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
+The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `target\infoware-aldhani-0.1.21.jar`. That jar is the OSGi plugin. `feature.xml` is packed inside it for `install.ps1`. The self-test does not call Domino or Kyber.
 
 `target\` is gitignored.
 
@@ -128,8 +130,8 @@ The build compiles the servlet, runs `AldhaniSelfTest` in process, and writes `t
 
 The HTTP task loads the feature only when it is listed in `platform.xml`. The applications site on Domino uses the `USER-EXCLUDE` policy, and Equinox reads the feature as a directory, so copying a jar into `plugins` is not enough. `install.ps1` does three things:
 
-- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.20.jar`
-- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.20\`
+- copies the plugin to `plugins\se.infoware.domino.aldhani_0.1.21.jar`
+- unpacks `feature.xml` to `features\se.infoware.domino.aldhani.feature_0.1.21\`
 - adds the feature under the applications site in `domino\workspace\.config\org.eclipse.update\platform.xml`
 
 Stop HTTP first. On shutdown the HTTP task rewrites `platform.xml` from memory, so an edit made while HTTP is running is lost. `tell http restart` does not reload this configuration.

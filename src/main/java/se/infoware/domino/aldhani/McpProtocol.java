@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 final class McpProtocol {
-    static final String VERSION = "0.1.20";
+    static final String VERSION = "0.1.21";
     private static final String LATEST_PROTOCOL = "2025-11-25";
     private static final Set<String> PROTOCOL_VERSIONS = Set.of(
             "2024-11-05",
